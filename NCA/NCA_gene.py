@@ -165,7 +165,9 @@ def slow_perception(rgba, hidden):
     # For the GeneCA we need to sharper the boundaries so the RA can have an exploratory phase (as GenePropCA). By doing this the living mask
     # pass from a continous state to a discrete one, we do this because we work with unnitilize state which in different of GenePropCA that works
     # with the weights that the GeneCA obtain, here we work with zero weights.
-    alpha = rgba[:, 3:4, :, :]
+    alpha = rgba[:, 3:4, :, :] # Extract ONLY the alpha channel
+    h_layers = hidden[:, 0:2, :, :]
+    
     alpha_sharp = torch.sigmoid((alpha - 0.5) * 10.0) 
     
     eroded = -torch.nn.functional.max_pool2d(-alpha_sharp, kernel_size=3, stride=1, padding=1)
