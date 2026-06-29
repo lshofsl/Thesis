@@ -243,12 +243,10 @@ class GeneCA(torch.nn.Module):
         ra_stack = torch.cat([a, b, d], dim=1)
         raw_mod = self.modulator_net(ra_stack)
 
-        # Fade factor starts at 0.0 and smoothly scales up to 1.0 by step 40
-        fade_in = min(1.0, max(0.0, (step - 10) / 30.0)) 
-
-        # If fade_in is 0, mod is a neutral multiplier (1.0). 
-        # As fade_in reaches 1, the learned RA modulation takes full effect.
-        mod = 1.0 + fade_in * (raw_mod - 1.0)
+        if step < 50:
+            mod = torch.ones_like(raw_mod)
+        else:
+            mod = raw_mod
             
 
         # 3. Fast NCA Logic
