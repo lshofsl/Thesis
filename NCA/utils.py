@@ -141,16 +141,15 @@ def udate_gene_pool(pools,results, idxs, partitions):
     
     
 def make_gene_pool_GeneCA(gene_location, pool_size=1333, height=50, width=50, channels=22, device="cuda:0",
-                    gene_size=3, gene_start=13):
+                         gene_size=3, gene_start=13):
 
     seed = torch.zeros((channels, height, width), device=device)
 
-    # RGBA alpha (index 3) + hidden channels (4:gene_start) set to 1 at the center pixel
+
     seed[3:gene_start, height // 2, width // 2] = 1
 
-    # One-hot gene encoding, written into the gene channel block only
     for gene_loc in gene_location:
-        seed[gene_start + gene_loc, height // 2, width // 2] = 1
+        seed[gene_start + gene_loc, :, :] = 1  
 
     pool = seed.tile(pool_size, 1, 1, 1)
     return pool
