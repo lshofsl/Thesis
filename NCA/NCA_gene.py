@@ -227,21 +227,28 @@ class GeneCA(torch.nn.Module):
         phase, amplitude = ring_attractor_phases(a, b)
 
         # Slow RA updates
-        if step % k == 0 and step > 30: # Update the RA every k steps after an small evolution, if not we can have death initial states
+        if step % k == 0: 
             Q = slow_perception(x[:, :4], x[:, 4:13]) 
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
-            
+    
             new_a, new_b, new_d = discrete_update(
                 a, b, d, self.alpha, self.beta, self.omega, 
-                self.kappa, self.K, Ia, Ib, Id, dt=self.dt
-            )
+                self.kappa, self.K, Ia, Ib, Id, dt=self.dt)
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
-
-            # Use of the new RA states to compute the modulation for the gene propagation
             a, b, d = new_a, new_b, new_d
-            ra_stack = torch.cat([a, b, d], dim=1)
-            mod = self.modulator_net(ra_stack)
+
+        # 2. SMOOTH WARM-UP: Calculate a modulation factor that fades in slowly
+        # This allows normal growth for the first 30 steps before RA takes control
+        ra_stack = torch.cat([a, b, d], dim=1)
+        raw_mod = self.modulator_net(ra_stack)
+
+        # Fade factor starts at 0.0 and smoothly scales up to 1.0 by step 40
+        fade_in = min(1.0, max(0.0, (step - 10) / 30.0)) 
+
+        # If fade_in is 0, mod is a neutral multiplier (1.0). 
+        # As fade_in reaches 1, the learned RA modulation takes full effect.
+        mod = 1.0 + fade_in * (raw_mod - 1.0)
             
 
         # 3. Fast NCA Logic
