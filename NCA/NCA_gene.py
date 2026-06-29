@@ -227,7 +227,7 @@ class GeneCA(torch.nn.Module):
         phase, amplitude = ring_attractor_phases(a, b)
 
         # Slow RA updates
-        if step % k == 0 and step > 2: # Update the RA every k steps after an small evolution, if not we can have death initial states
+        if step % k == 0 and step > 100: # Update the RA every k steps after an small evolution, if not we can have death initial states
             Q = slow_perception(x[:, :4], x[:, 4:13]) 
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
