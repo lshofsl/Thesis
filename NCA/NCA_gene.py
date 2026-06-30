@@ -247,7 +247,7 @@ class GeneCA(torch.nn.Module):
         if ra_strength > 0.0:
             mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
         else:
-            mod_term = torch.zeros_like(1) 
+            mod_term = torch.zeros_like(raw_mod) 
 
         # 3. Fast NCA Logic
         fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + Gene for the fast perception, not the RA states
