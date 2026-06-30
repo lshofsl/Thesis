@@ -196,11 +196,11 @@ class GeneCA(torch.nn.Module):
         self.w2.weight.data.zero_()
         
         #Parameter of the RA 
-        self.alpha = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the activator/phase
-        self.beta  = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the inhibitor/injury
+        self.alpha = torch.nn.Parameter(torch.tensor(0.0)) # Decay rate of the activator/phase
+        self.beta  = torch.nn.Parameter(torch.tensor(0.0)) # Decay rate of the inhibitor/injury
         self.omega = torch.nn.Parameter(torch.tensor(0.0)) # Angular drift
-        self.K     = torch.nn.Parameter(torch.tensor(0.5)) # Diffusion strength
-        self.kappa = torch.nn.Parameter(torch.tensor(0.5)) # Spatial coupling between activator and inhibitor
+        self.K     = torch.nn.Parameter(torch.tensor(0.0)) # Diffusion strength
+        self.kappa = torch.nn.Parameter(torch.tensor(0.0)) # Spatial coupling between activator and inhibitor
         self.dt    = 0.1
 
         # Inputs for the slow perception of the RA 
