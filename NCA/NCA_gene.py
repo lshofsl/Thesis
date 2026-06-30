@@ -243,8 +243,8 @@ class GeneCA(torch.nn.Module):
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             a, b, d = new_a, new_b, new_d
 
-            ra_stack = torch.cat([a, b, d], dim=1)
-            raw_mod = self.modulator_net(ra_stack)
+        ra_stack = torch.cat([a, b, d], dim=1)
+        raw_mod = self.modulator_net(ra_stack)
 
         if ra_strength <= 0.0 or step < self.warmup_steps:
             mod_term = 0.0
