@@ -144,8 +144,6 @@ def make_gene_pool_GeneCA(gene_location, pool_size=1333, height=50, width=50, ch
                          gene_size=3, gene_start=13):
 
     seed = torch.zeros((channels, height, width), device=device)
-
-
     seed[3:gene_start, height // 2, width // 2] = 1
 
     for gene_loc in gene_location:
@@ -153,3 +151,21 @@ def make_gene_pool_GeneCA(gene_location, pool_size=1333, height=50, width=50, ch
 
     pool = seed.tile(pool_size, 1, 1, 1)
     return pool
+    
+    
+def update_gene_pool_with_reseed(pools, results, idxs, partitions, seeds, per_sample_loss, reseed_n=1):
+    pool_new = []
+    cum_idx = 0
+    for pool, idx, part, seed in zip(pools, idxs, partitions, seeds):
+        batch_results = results[cum_idx:part+cum_idx]
+        batch_loss = per_sample_loss[cum_idx:part+cum_idx]  # shape (part,)
+
+        # Find worst-performing samples in this batch and reseed them
+        worst_idx_local = torch.topk(batch_loss, k=min(reseed_n, part)).indices
+        batch_results = batch_results.clone()
+        batch_results[worst_idx_local] = seed.clone()
+
+        pool[idx] = batch_results
+        cum_idx += part
+        pool_new.append(pool)
+    return pool_new
