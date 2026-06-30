@@ -196,11 +196,11 @@ class GeneCA(torch.nn.Module):
         self.w2.weight.data.zero_()
         
         #Parameter of the RA 
-        self.alpha = torch.nn.Parameter(torch.tensor(0.0)) # Decay rate of the activator/phase
-        self.beta  = torch.nn.Parameter(torch.tensor(0.0)) # Decay rate of the inhibitor/injury
-        self.omega = torch.nn.Parameter(torch.tensor(0.0)) # Angular drift
-        self.K     = torch.nn.Parameter(torch.tensor(0.0)) # Diffusion strength
-        self.kappa = torch.nn.Parameter(torch.tensor(0.0)) # Spatial coupling between activator and inhibitor
+        self.alpha = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the activator/phase
+        self.beta  = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the inhibitor/injury
+        self.omega = torch.nn.Parameter(torch.tensor(0.1)) # Angular drift
+        self.K     = torch.nn.Parameter(torch.tensor(0.1)) # Diffusion strength
+        self.kappa = torch.nn.Parameter(torch.tensor(0.1)) # Spatial coupling between activator and inhibitor
         self.dt    = 0.1
 
         # Inputs for the slow perception of the RA 
@@ -233,9 +233,8 @@ class GeneCA(torch.nn.Module):
         # Slow RA updates
         ra_strength = min(1.0, max(0.0, (training_iter - self.global_warmup_iters) / self.ra_ramp_iters))
 
-        # Local per-rollout gating: only let RA state evolve once cells have had time to grow
-        if step >= self.warmup_steps and step % k == 0:
-            Q = slow_perception(x[:, :4], x[:, 4:13])
+        if step % k == 0 and step >=5 :
+            Q = slow_perception(x[:, :4], x[:, 4:13])  # consider adding gene channels here
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             new_a, new_b, new_d = discrete_update(a, b, d, self.alpha, self.beta, self.omega,
@@ -246,11 +245,7 @@ class GeneCA(torch.nn.Module):
         ra_stack = torch.cat([a, b, d], dim=1)
         raw_mod = self.modulator_net(ra_stack)
 
-        if ra_strength <= 0.0 or step < self.warmup_steps:
-            mod_term = 0.0
-        else:
-            local_ramp = min(1.0, max(0.0, (step - self.warmup_steps) / self.ramp_steps))
-            mod_term = ra_strength * local_ramp * torch.tanh(self.mod_proj(raw_mod))
+        mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
             
 
         # 3. Fast NCA Logic
