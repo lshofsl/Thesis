@@ -182,8 +182,6 @@ def slow_perception(channels):
 
 
 
-
-
 class GeneCA(torch.nn.Module):
     def __init__(self, chn=12, hidden_n=96, gene_size=3, recurrent_gene =3, modulatory_gene=3):
         super().__init__()
@@ -249,7 +247,7 @@ class GeneCA(torch.nn.Module):
         if ra_strength > 0.0:
             mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
         else:
-            mod_term = torch.zeros_like(h) 
+            mod_term = torch.zeros_like(1) 
 
         # 3. Fast NCA Logic
         fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + Gene for the fast perception, not the RA states
