@@ -237,7 +237,7 @@ class GeneCA(torch.nn.Module):
 
         ra_stack = torch.cat([a, b, d], dim=1)
         raw_mod = self.modulator_net(ra_stack)
-        mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
+        mod_term = torch.tanh(self.mod_proj(raw_mod))
 
 
         # 3. Fast NCA Logic
