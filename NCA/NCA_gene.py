@@ -211,7 +211,7 @@ class GeneCA(torch.nn.Module):
         torch.nn.init.normal_(self.mod_proj.weight, std=0.01)
         torch.nn.init.zeros_(self.mod_proj.bias)  #Initialization near of zero of the modulation projection to avoid instabilities at the beginning of training
 
-        
+        self.warmup_steps = 50
         
     def forward(self, x, update_rate=0.5,  step=0, k=4):
         #Initialize variables from x
@@ -226,9 +226,9 @@ class GeneCA(torch.nn.Module):
         # Phase/Amplitude initialization
         phase, amplitude = ring_attractor_phases(a, b)
 
-        print(f"Step {step} | Alpha max before RA: {x[:, 3].max().item():.4f}")
+
         # Slow RA updates
-        if step % k == 0: 
+        if step >= self.warmup_steps and step % k == 0:  ## RA dynamics are added smoothly 
             Q = slow_perception(x[:, :4], x[:, 4:13]) 
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
@@ -242,10 +242,10 @@ class GeneCA(torch.nn.Module):
         ra_stack = torch.cat([a, b, d], dim=1)
         raw_mod = self.modulator_net(ra_stack)
 
-        if step < 200:
-            mod = torch.ones_like(raw_mod)
+        if step < self.warmup_steps:
+            mod_term = 0.0
         else:
-            mod = raw_mod
+            mod_term = torch.tanh(self.mod_proj(raw_mod))
             
 
         # 3. Fast NCA Logic
@@ -276,7 +276,7 @@ class GeneCA(torch.nn.Module):
             mod         # 19:22
         ], dim=1)
 
-        print(f"Step {step} | Alpha max after RA: {x[:, 3].max().item():.4f}")
+
         phase, amplitude = ring_attractor_phases(a, b)
         return x_final, phase, amplitude
 
