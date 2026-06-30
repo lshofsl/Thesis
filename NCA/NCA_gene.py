@@ -244,14 +244,16 @@ class GeneCA(torch.nn.Module):
         ra_stack = torch.cat([a, b, d], dim=1)
         raw_mod = self.modulator_net(ra_stack)
 
-        if ra_strength > 0.0:
-            mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
-        else:
-            mod_term = torch.zeros_like(raw_mod) 
 
         # 3. Fast NCA Logic
         fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + Gene for the fast perception, not the RA states
         h = self.w1(fast_input)          
+        
+        if ra_strength > 0.0:
+            mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
+        else:
+            mod_term = torch.zeros_like(h) 
+        
         h = h + mod_term        # We project the RA modulation into the hidden space. We do this as we work with 2 time scales, the RA modulation should affect the hidden representation of the NCA before the output layer.
         y = self.w2(torch.relu(h)) 
         
