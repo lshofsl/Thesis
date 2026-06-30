@@ -185,8 +185,6 @@ def slow_perception(channels):
 class GeneCA(torch.nn.Module):
     def __init__(self, chn=12, hidden_n=96, gene_size=3, recurrent_gene =3, modulatory_gene=3):
         super().__init__()
-        self.global_warmup_iters = 800
-        self.ra_ramp_iters = 1000
         self.public = chn - gene_size - recurrent_gene - modulatory_gene  # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
         self.private = gene_size 
         self.fast_channels = self.public + self.private
@@ -212,9 +210,7 @@ class GeneCA(torch.nn.Module):
         torch.nn.init.normal_(self.mod_proj.weight, std=0.01)
         torch.nn.init.zeros_(self.mod_proj.bias)  #Initialization near of zero of the modulation projection to avoid instabilities at the beginning of training
 
-        self.warmup_steps = 40
-        self.ramp_steps = 50
-        
+
     def forward(self, x, update_rate=0.5,  step=0, k=4,training_iter=0):
         #Initialize variables from x
         prefix = x[:, :13, ...].clone()    # RGBA + Hidden
@@ -230,9 +226,7 @@ class GeneCA(torch.nn.Module):
 
 
         # Slow RA updates
-        ra_strength = min(1.0, max(0.0, (training_iter - self.global_warmup_iters) / self.ra_ramp_iters))
-
-        if step % k == 0 and step >=5 :
+        if step % k == 0 and step >=20 : 
             Q = slow_perception(x[:, :16])  # consider adding gene channels here
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
@@ -243,17 +237,12 @@ class GeneCA(torch.nn.Module):
 
         ra_stack = torch.cat([a, b, d], dim=1)
         raw_mod = self.modulator_net(ra_stack)
+        mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
 
 
         # 3. Fast NCA Logic
         fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + Gene for the fast perception, not the RA states
         h = self.w1(fast_input)          
-        
-        if ra_strength > 0.0:
-            mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
-        else:
-            mod_term = torch.zeros_like(h) 
-        
         h = h + mod_term        # We project the RA modulation into the hidden space. We do this as we work with 2 time scales, the RA modulation should affect the hidden representation of the NCA before the output layer.
         y = self.w2(torch.relu(h)) 
         
