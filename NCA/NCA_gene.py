@@ -161,12 +161,13 @@ def consensus_update(a, b, dt, mode='local'):
     b = b + dt * (b_avg_norm - b)
     return a, b
 
-def slow_perception(rgba, hidden):
+def slow_perception(channels):
     # For the GeneCA we need to sharper the boundaries so the RA can have an exploratory phase (as GenePropCA). By doing this the living mask
     # pass from a continous state to a discrete one, we do this because we work with unnitilize state which in different of GenePropCA that works
     # with the weights that the GeneCA obtain, here we work with zero weights.
-    alpha = rgba[:, 3:4, :, :] # Extract ONLY the alpha channel
-    h_layers = hidden[:, 0:2, :, :]
+    alpha = channels[:, 3:4, :, :] # Extract ONLY the alpha channel
+    h_layers = channels[:, 4:6, :, :]
+    genes = channels[:,13:16,:, :]
     
     alpha_sharp = torch.sigmoid((alpha - 0.5) * 10.0) 
     
@@ -176,7 +177,7 @@ def slow_perception(rgba, hidden):
     alpha_padded = torch.nn.functional.pad(alpha_sharp, [1,1,1,1], mode='circular')
     lap_alpha = torch.nn.functional.conv2d(alpha_padded, lap_kernel, padding=0)
 
-    Q = torch.cat([alpha_sharp, edges, lap_alpha, h_layers], dim=1)
+    Q = torch.cat([alpha_sharp, edges, lap_alpha, h_layers, genes], dim=1)
     return Q
 
 
@@ -205,7 +206,7 @@ class GeneCA(torch.nn.Module):
 
         # Inputs for the slow perception of the RA 
         # Q -> Ia, Ib, Id
-        self.slow_input_net = torch.nn.Conv2d(5, 3, kernel_size=1)
+        self.slow_input_net = torch.nn.Conv2d(8, 3, kernel_size=1)
         # Translation from the RA state to the gene modulation output
         # a,b,d -> m_g, m_s, m_r
         self.modulator_net = torch.nn.Conv2d(3, 3, kernel_size=1)
@@ -234,7 +235,7 @@ class GeneCA(torch.nn.Module):
         ra_strength = min(1.0, max(0.0, (training_iter - self.global_warmup_iters) / self.ra_ramp_iters))
 
         if step % k == 0 and step >=5 :
-            Q = slow_perception(x[:, :4], x[:, 4:13])  # consider adding gene channels here
+            Q = slow_perception(x[:, :16])  # consider adding gene channels here
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             new_a, new_b, new_d = discrete_update(a, b, d, self.alpha, self.beta, self.omega,
@@ -245,8 +246,10 @@ class GeneCA(torch.nn.Module):
         ra_stack = torch.cat([a, b, d], dim=1)
         raw_mod = self.modulator_net(ra_stack)
 
-        mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
-            
+        if ra_strength > 0.0:
+            mod_term = ra_strength * torch.tanh(self.mod_proj(raw_mod))
+        else:
+            mod_term = torch.zeros_like(h) 
 
         # 3. Fast NCA Logic
         fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + Gene for the fast perception, not the RA states
