@@ -238,12 +238,10 @@ class GeneCA(torch.nn.Module):
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             a, b, d = new_a, new_b, new_d
 
-        # 2. SMOOTH WARM-UP: Calculate a modulation factor that fades in slowly
-        # This allows normal growth for the first 30 steps before RA takes control
         ra_stack = torch.cat([a, b, d], dim=1)
         raw_mod = self.modulator_net(ra_stack)
 
-        if step < 50:
+        if step < 200:
             mod = torch.ones_like(raw_mod)
         else:
             mod = raw_mod
