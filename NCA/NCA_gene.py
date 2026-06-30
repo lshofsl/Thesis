@@ -226,6 +226,7 @@ class GeneCA(torch.nn.Module):
         # Phase/Amplitude initialization
         phase, amplitude = ring_attractor_phases(a, b)
 
+        print(f"Step {step} | Alpha max before RA: {x[:, 3].max().item():.4f}")
         # Slow RA updates
         if step % k == 0: 
             Q = slow_perception(x[:, :4], x[:, 4:13]) 
@@ -275,6 +276,7 @@ class GeneCA(torch.nn.Module):
             mod         # 19:22
         ], dim=1)
 
+        print(f"Step {step} | Alpha max after RA: {x[:, 3].max().item():.4f}")
         phase, amplitude = ring_attractor_phases(a, b)
         return x_final, phase, amplitude
 
