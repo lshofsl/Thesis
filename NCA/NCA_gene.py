@@ -213,9 +213,10 @@ class GeneCA(torch.nn.Module):
         torch.nn.init.normal_(self.mod_proj.weight, std=0.01)
         torch.nn.init.zeros_(self.mod_proj.bias)  #Initialization near of zero of the modulation projection to avoid instabilities at the beginning of training
 
-        self.warmup_steps = 50
+        self.warmup_steps = 40
+        self.ramp_steps = 50
         
-    def forward(self, x, update_rate=0.5,  step=0, k=4,training_iter=8000):
+    def forward(self, x, update_rate=0.5,  step=0, k=4,training_iter=0):
         #Initialize variables from x
         prefix = x[:, :13, ...].clone()    # RGBA + Hidden
         gene = x[:, 13:16, ...].clone()      # Gene Encoding
