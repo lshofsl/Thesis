@@ -205,9 +205,10 @@ class GenePropCA(torch.nn.Module):
         super().__init__()
         self.chn = chn
         self.gene_size = gene_size
+        self.fast_channels = chn - 6
     
         # Compute input size dynamically like IsoCA
-        dummy = torch.zeros([1, 15, 8, 8], device="cuda:0")
+        dummy = torch.zeros([1, self.fast_channels, 8, 8], device="cuda:0")
         perc_chn = reduced_perception(dummy, 0).shape[1]
 
     
