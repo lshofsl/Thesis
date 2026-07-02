@@ -244,8 +244,7 @@ class GenePropCA(torch.nn.Module):
         d = x[:, 18:19].clone()
         mod = x[:, 19:22].clone()
 
-        # Phase/Amplitude initialization
-        phase, amplitude = ring_attractor_phases(a, b)
+        
 
         # Slow RA updates
         if step % k == 0 or step == 0: # Update the RA every k steps (including the first step)
@@ -263,6 +262,9 @@ class GenePropCA(torch.nn.Module):
             a, b, d = new_a, new_b, new_d
             ra_stack = torch.cat([a, b, d], dim=1)
             mod = self.modulator_net(ra_stack)
+            
+            # Phase/Amplitude values
+            phase, amplitude = ring_attractor_phases(a, b)
             
 
         # 3. Fast NCA Logic
