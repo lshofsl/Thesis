@@ -185,7 +185,7 @@ def slow_perception(channels):
 class GeneCA(torch.nn.Module):
     def __init__(self, chn=12, hidden_n=96, gene_size=3, recurrent_gene =3, modulatory_gene=3):
         super().__init__()
-        self.chn
+        self.chn = chn
         self.public = chn - gene_size - recurrent_gene - modulatory_gene  # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
         self.private = gene_size 
         self.fast_channels = self.public + self.private
