@@ -161,23 +161,19 @@ def consensus_update(a, b, dt, mode='local'):
     b = b + dt * (b_avg_norm - b)
     return a, b
 
-def slow_perception(channels):
-    # For the GeneCA we need to sharper the boundaries so the RA can have an exploratory phase (as GenePropCA). By doing this the living mask
-    # pass from a continous state to a discrete one, we do this because we work with unnitilize state which in different of GenePropCA that works
-    # with the weights that the GeneCA obtain, here we work with zero weights.
-    alpha = channels[:, 3:4, :, :] # Extract ONLY the alpha channel
-    h_layers = channels[:, 4:6, :, :]
-    genes = channels[:,13:16,:, :]
-    
-    alpha_sharp = torch.sigmoid((alpha - 0.5) * 10.0) 
-    
-    eroded = -torch.nn.functional.max_pool2d(-alpha_sharp, kernel_size=3, stride=1, padding=1)
-    edges = alpha_sharp - eroded
-    
-    alpha_padded = torch.nn.functional.pad(alpha_sharp, [1,1,1,1], mode='circular')
+def slow_perception(rgba, hidden):   #Here we take the NCA channels and compute the local input of the slow controller
+    # v: RGBA, h 2 first hidden channels 
+    alpha = rgba[:, 3:4, :, :] # Extract ONLY the alpha channel
+    h_layers = hidden[:, 0:2, :, :]
+
+    eroded = -torch.nn.functional.max_pool2d(-alpha, kernel_size=3, stride=1, padding=1)
+    edges = alpha - eroded
+
+    alpha_padded = torch.nn.functional.pad(alpha, [1,1,1,1], mode='circular')
     lap_alpha = torch.nn.functional.conv2d(alpha_padded, lap_kernel, padding=0)
 
-    Q = torch.cat([alpha_sharp, edges, lap_alpha, h_layers, genes], dim=1)
+    # Q has 5 channels: [alpha, edges, lap, h1, h2]
+    Q = torch.cat([alpha, edges, lap_alpha, h_layers], dim=1)
     return Q
 
 
