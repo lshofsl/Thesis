@@ -189,7 +189,7 @@ class GeneCA(torch.nn.Module):
         dummy = torch.zeros([1, 16, 8, 8], device="cuda:0")
         perc_chn = reduced_perception(dummy, 0).shape[1]
         
-        self.w1 = torch.nn.Conv2d(perc_chn + 3 * (perc_chn), hidden_n, 1) 
+        self.w1 = torch.nn.Conv2d(16 + 3 * (16), hidden_n, 1) 
         self.w2 = torch.nn.Conv2d(hidden_n, self.public, 1, bias=False)  #Only for RGBA+hidden channels 
         self.w2.weight.data.zero_()
         
