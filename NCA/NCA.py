@@ -205,11 +205,14 @@ def slow_perception(rgba, hidden):   #Here we take the NCA channels and compute 
 
 
 class GenePropCA(torch.nn.Module):
-    def __init__(self, chn=12, hidden_n=96, gene_size=3):
+    def __init__(self, chn=22, hidden_n=96, gene_size=3,  recurrent_gene =3, modulatory_gene=3):
+    # In GenepopCA now the full state vector (RGBA + hidden + gene) act over the perception but only the gene channels are updated. In this case we implement the RA dynamics in a slow time-scale in comparison with the gene update. This RA will consist on injecting over the training the dynamics of the ring attractor through a modulation  
         super().__init__()
         self.chn = chn
         self.gene_size = gene_size
-        self.fast_channels = chn - 6
+        self.private = chn - gene_size - recurrent_gene - modulatory_gene 
+        self.RA = recurrent_gene + modularoty_gene
+        self.fast_channels = chn - self.RA 
     
         # Compute input size dynamically like IsoCA
         dummy = torch.zeros([1, self.fast_channels, 8, 8], device="cuda:0")
@@ -219,7 +222,6 @@ class GenePropCA(torch.nn.Module):
         self.w1 = torch.nn.Conv2d(perc_chn, hidden_n, 1)
         self.w2 = torch.nn.Conv2d(hidden_n, gene_size, 1, bias=False)
         self.w2.weight.data.zero_()
-        self.gene_size = gene_size
 
         #Parameter of the RA 
         self.alpha = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the activator/phase
@@ -248,7 +250,7 @@ class GenePropCA(torch.nn.Module):
         mod = x[:, 19:22].clone()
 
         if step % k == 0:
-            Q = slow_perception(x[:, :4], x[:, 4:13])
+            Q = slow_perception(x[:, :4], x[:, 4:13])  #Only recive RGBA and hidden channels 
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             new_a, new_b, new_d = discrete_update(a, b, d, self.alpha, self.beta, self.omega,
@@ -258,12 +260,12 @@ class GenePropCA(torch.nn.Module):
             ra_stack = torch.cat([a, b, d], dim=1)
             mod = self.modulator_net(ra_stack)
 
-        fast_input = reduced_perception(x[:, :self.fast_channels], 0)  # fix #1
+        fast_input = reduced_perception(x[:, :self.fast_channels], 0)  # only RGBA+hidden+gene
         h = self.w1(fast_input)
-        h = h + torch.tanh(self.mod_proj(mod))  #Weights modulation 
+        h = h + torch.tanh(self.mod_proj(mod))  #Weights modulation by the RA dynamics 
         y = self.w2(torch.relu(h))
 
-        b_sz, c_sz, h_dim, w_dim = y.shape  # fix #2
+        b_sz, c_sz, h_dim, w_dim = y.shape 
         update_mask = (torch.rand(b_sz, 1, h_dim, w_dim, device=x.device) + update_rate).floor()
         xmp = torch.nn.functional.pad(x[:, 3:4, ...], pad=[1, 1, 1, 1], mode="circular")
         pre_life_mask = (torch.nn.functional.max_pool2d(xmp, 3, 1, 0) > 0.1).to(x.device)
