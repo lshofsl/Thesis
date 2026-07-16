@@ -111,6 +111,7 @@ class ReducedCA(torch.nn.Module):
         return x
 
 
+
 class GeneCA(torch.nn.Module):
     def __init__(self, chn=12, hidden_n=96, gene_size=3, recurrent_gene =3, modulatory_gene=3):
         super().__init__()

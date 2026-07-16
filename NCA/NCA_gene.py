@@ -183,7 +183,7 @@ class GeneCA(torch.nn.Module):
         super().__init__()
         self.chn = chn
         public = chn - gene_size - recurrent_gene - modulatory_gene  # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
-        self.fast_channels = public + gene_size  #16 channels
+
         
         dummy = torch.zeros([1, 16, 8, 8], device="cuda:0")
         perc_chn = reduced_perception(dummy, 0).shape[1]
