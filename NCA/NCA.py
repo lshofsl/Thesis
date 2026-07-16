@@ -112,26 +112,30 @@ class ReducedCA(torch.nn.Module):
 
 
 class GeneCA(torch.nn.Module):
-    def __init__(self, chn=12, hidden_n=96, gene_size=3, recurrent_gene =3, modulatory_gene=3):
+    def __init__(self, chn=22, hidden_n=96, gene_size=3, recurrent_gene =3, modulatory_gene=3):
+    #Only the RGBA+hidden+gene channels can participate on this network, the RA channels (recurrent_gene, modulatory_gene) participate to have the same state vector (22 channels)
+    # that is used on the genepropCA network. They should not influence or pariticipate on this network 
         super().__init__()
         self.chn = chn
         self.gene_size = gene_size 
-        self.w1 = torch.nn.Conv2d(chn + 3 * (chn), hidden_n, 1)
-        GeneCA_layers = chn  - gene_size -recurrent_gene - modulatory_gene   # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
-        self.w2 = torch.nn.Conv2d(hidden_n, GeneCA_layers, 1, bias=False)
+        self.private = chn  - gene_size -recurrent_gene - modulatory_gene   # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
+        self.RA =  recurrent_gene + modulatory_gene
+        self.w1 = torch.nn.Conv2d((self.private+self.gene_size) + 3 * (self.private+self.gene_size), hidden_n, 1)
+        self.w2 = torch.nn.Conv2d(hidden_n, self.private, 1, bias=False)
         self.w2.weight.data.zero_()
-        self.channels = gene_size + recurrent_gene + modulatory_gene
+        
 
     def forward(self, x, update_rate=0.5):
-        gene = x[:, -self.channels:, ...]
-        y = reduced_perception(x[:, :self.chn+ self.gene_size], 0)   #Only perceive the RGBA + hidden + genes but not the RA states or the modulatory  channels
+        gene = x[:, 13:16, :, ...]
+        ra_channels = x[:, 16:, ...]
+        y = reduced_perception(x[:, :self.private + self.gene_size], 0)   #Only perceive the RGBA + hidden + genes but not the RA states or the modulatory  channels
         y = self.w2(torch.relu(self.w1(y)))
         b, c, h, w = y.shape
         update_mask = (torch.rand(b, 1, h, w, device="cuda:0") + update_rate).floor()
-        xmp = torch.nn.functional.pad(x[:, None, 3, ...], pad=[1, 1, 1, 1], mode="circular")
+        xmp = torch.nn.functional.pad(x[:, 3:4, ...], pad=[1, 1, 1, 1], mode="circular")
         pre_life_mask = torch.nn.functional.max_pool2d(xmp, 3, 1, 0, ).cuda() > 0.1
-        x = x[:, :x.shape[1] - self.channels, ...] + y * update_mask * pre_life_mask
-        x = torch.cat((x, gene), dim=1)
+        x = x[:, :self.private, ...] + y * update_mask * pre_life_mask
+        x = torch.cat((x, gene, ra_channels), dim=1)
         return x
 
 #Slow RA functions 
