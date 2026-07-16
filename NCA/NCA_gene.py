@@ -185,8 +185,10 @@ class GeneCA(torch.nn.Module):
         public = chn - gene_size - recurrent_gene - modulatory_gene  # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
         self.fast_channels = public + gene_size  #16 channels
         
-        
-        self.w1 = torch.nn.Conv2d(4*chn, hidden_n, 1)
+        dummy = torch.zeros([1, 16, 8, 8], device="cuda:0")
+        perc_chn = reduced_perception(dummy, 0).shape[1]
+    
+        self.w1 = torch.nn.Conv2d(perc_chn, hidden_n, 1)
         self.w2 = torch.nn.Conv2d(hidden_n, public, 1, bias=False)  #Only for RGBA+hidden channels 
         self.w2.weight.data.zero_()
         
@@ -243,7 +245,7 @@ class GeneCA(torch.nn.Module):
             
 
         # 3. Fast NCA Logic
-        fast_input = reduced_perception(x, 0) # We only use the RGBA + Gene for the fast perception
+        fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + Gene for the fast perception
         h = self.w1(fast_input)          
         h = h + torch.tanh(self.mod_proj(mod))        # We project the RA modulation into the hidden space. We do this as we work with 2 time scales, the RA modulation should affect the hidden representation of the NCA before the output layer.
         y = self.w2(torch.relu(h)) 
