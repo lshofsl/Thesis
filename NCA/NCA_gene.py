@@ -185,24 +185,30 @@ def slow_perception(channels):
 class GeneCA(torch.nn.Module):
     def __init__(self, chn=12, hidden_n=96, gene_size=3, recurrent_gene =3, modulatory_gene=3):
         super().__init__()
+        self.chn
         self.public = chn - gene_size - recurrent_gene - modulatory_gene  # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
         self.private = gene_size 
         self.fast_channels = self.public + self.private
-        self.w1 = torch.nn.Conv2d(self.fast_channels + 3 * (self.fast_channels), hidden_n, 1) 
-        self.w2 = torch.nn.Conv2d(hidden_n, self.public, 1, bias=False)
+        
+        dummy = torch.zeros([1, 16, 8, 8], device="cuda:0")
+        perc_chn = reduced_perception(dummy, 0).shape[1]
+        
+        self.w1 = torch.nn.Conv2d(perc_chn + 3 * (perc_chn), hidden_n, 1) 
+        self.w2 = torch.nn.Conv2d(hidden_n, self.public, 1, bias=False)  #Only for RGBA+hidden channels 
         self.w2.weight.data.zero_()
+        
         
         #Parameter of the RA 
         self.alpha = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the activator/phase
         self.beta  = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the inhibitor/injury
-        self.omega = torch.nn.Parameter(torch.tensor(0.1)) # Angular drift
-        self.K     = torch.nn.Parameter(torch.tensor(0.1)) # Diffusion strength
-        self.kappa = torch.nn.Parameter(torch.tensor(0.1)) # Spatial coupling between activator and inhibitor
+        self.omega = torch.nn.Parameter(torch.tensor(0.0)) # Angular drift
+        self.K     = torch.nn.Parameter(torch.tensor(0.5)) # Diffusion strength
+        self.kappa = torch.nn.Parameter(torch.tensor(0.5)) # Spatial coupling between activator and inhibitor
         self.dt    = 0.1
 
         # Inputs for the slow perception of the RA 
         # Q -> Ia, Ib, Id
-        self.slow_input_net = torch.nn.Conv2d(8, 3, kernel_size=1)
+        self.slow_input_net = torch.nn.Conv2d(5, 3, kernel_size=1)
         # Translation from the RA state to the gene modulation output
         # a,b,d -> m_g, m_s, m_r
         self.modulator_net = torch.nn.Conv2d(3, 3, kernel_size=1)
@@ -210,7 +216,8 @@ class GeneCA(torch.nn.Module):
         torch.nn.init.normal_(self.mod_proj.weight, std=0.01)
         torch.nn.init.zeros_(self.mod_proj.bias)  #Initialization near of zero of the modulation projection to avoid instabilities at the beginning of training
 
-
+        
+        
     def forward(self, x, update_rate=0.5,  step=0, k=4):
         #Initialize variables from x
         prefix = x[:, :13, ...].clone()    # RGBA + Hidden
@@ -224,26 +231,28 @@ class GeneCA(torch.nn.Module):
         # Phase/Amplitude initialization
         phase, amplitude = ring_attractor_phases(a, b)
 
-
         # Slow RA updates
-        if step % k == 0 and step >=20 : 
-            Q = slow_perception(x[:, :16])  # consider adding gene channels here
+        if step % k == 0 or step == 0: # Update the RA every k steps (including the first step)
+            Q = slow_perception(x[:, :4], x[:, 4:13]) 
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
-            new_a, new_b, new_d = discrete_update(a, b, d, self.alpha, self.beta, self.omega,
-                                               self.kappa, self.K, Ia, Ib, Id, dt=self.dt)
+            
+            new_a, new_b, new_d = discrete_update(
+                a, b, d, self.alpha, self.beta, self.omega, 
+                self.kappa, self.K, Ia, Ib, Id, dt=self.dt
+            )
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
+
+            # Use of the new RA states to compute the modulation for the gene propagation
             a, b, d = new_a, new_b, new_d
-
-        ra_stack = torch.cat([a, b, d], dim=1)
-        raw_mod = self.modulator_net(ra_stack)
-        mod_term = torch.tanh(self.mod_proj(raw_mod))
-
+            ra_stack = torch.cat([a, b, d], dim=1)
+            mod = self.modulator_net(ra_stack)
+            
 
         # 3. Fast NCA Logic
         fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + Gene for the fast perception, not the RA states
         h = self.w1(fast_input)          
-        h = h + mod_term        # We project the RA modulation into the hidden space. We do this as we work with 2 time scales, the RA modulation should affect the hidden representation of the NCA before the output layer.
+        h = h + torch.tanh(self.mod_proj(mod))        # We project the RA modulation into the hidden space. We do this as we work with 2 time scales, the RA modulation should affect the hidden representation of the NCA before the output layer.
         y = self.w2(torch.relu(h)) 
         
         # Masks
@@ -267,7 +276,6 @@ class GeneCA(torch.nn.Module):
             d,          # 18
             mod         # 19:22
         ], dim=1)
-
 
         phase, amplitude = ring_attractor_phases(a, b)
         return x_final, phase, amplitude
