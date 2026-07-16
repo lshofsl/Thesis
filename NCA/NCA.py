@@ -236,63 +236,39 @@ class GenePropCA(torch.nn.Module):
         torch.nn.init.zeros_(self.mod_proj.bias)  #Initialization near of zero of the modulation projection to avoid instabilities at the beginning of training
 
     def forward(self, x, update_rate=0.5, is_dual=False, step=0, k=4):
-        #Initialize variables from x
-        prefix = x[:, :13, ...].clone()    # RGBA + Hidden
-        gene = x[:, 13:16, ...].clone()      # Gene Encoding
+        prefix = x[:, :13, ...].clone()
+        gene = x[:, 13:16, ...].clone()
         a = x[:, 16:17].clone()
         b = x[:, 17:18].clone()
         d = x[:, 18:19].clone()
         mod = x[:, 19:22].clone()
 
-        
-
-        # Slow RA updates
-        if step % k == 0 or step == 0: # Update the RA every k steps (including the first step)
-            Q = slow_perception(x[:, :4], x[:, 4:13]) 
+        if step % k == 0:
+            Q = slow_perception(x[:, :4], x[:, 4:13])
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
-            
-            new_a, new_b, new_d = discrete_update(
-                a, b, d, self.alpha, self.beta, self.omega, 
-                self.kappa, self.K, Ia, Ib, Id, dt=self.dt
-            )
+            new_a, new_b, new_d = discrete_update(a, b, d, self.alpha, self.beta, self.omega,
+                                               self.kappa, self.K, Ia, Ib, Id, dt=self.dt)
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
-
-            # Use of the new RA states to compute the modulation for the gene propagation
             a, b, d = new_a, new_b, new_d
             ra_stack = torch.cat([a, b, d], dim=1)
             mod = self.modulator_net(ra_stack)
-            
-            # Phase/Amplitude values
-            phase, amplitude = ring_attractor_phases(a, b)
-            
 
-        # 3. Fast NCA Logic
-        fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + Gene for the fast perception, not the RA states
-        h = self.w1(fast_input)          
-        h = h + torch.tanh(self.mod_proj(mod))        # We project the RA modulation into the hidden space. We do this as we work with 2 time scales, the RA modulation should affect the hidden representation of the NCA before the output layer.
-        y = self.w2(torch.relu(h)) 
-        
-        # Masks
-        b_sz, c_sz, h, w = y.shape
-        update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) + update_rate).floor()
+        fast_input = reduced_perception(x[:, :self.fast_channels], 0)  # fix #1
+        h = self.w1(fast_input)
+        h = h + torch.tanh(self.mod_proj(mod))  #Weights modulation 
+        y = self.w2(torch.relu(h))
+
+        b_sz, c_sz, h_dim, w_dim = y.shape  # fix #2
+        update_mask = (torch.rand(b_sz, 1, h_dim, w_dim, device=x.device) + update_rate).floor()
         xmp = torch.nn.functional.pad(x[:, 3:4, ...], pad=[1, 1, 1, 1], mode="circular")
         pre_life_mask = (torch.nn.functional.max_pool2d(xmp, 3, 1, 0) > 0.1).to(x.device)
 
-        #  Update of the Gene including the masks
         new_gene = gene + y * update_mask * pre_life_mask
 
-        # We concatenate all parts to create x_final without ever modifying the input x
-        x_final = torch.cat([
-            prefix,     # 0:13
-            new_gene,   # 13:16
-            a,          # 16
-            b,          # 17
-            d,          # 18
-            mod         # 19:2
-        ], dim=1)
+        x_final = torch.cat([prefix, new_gene, a, b, d, mod], dim=1)
 
-        phase, amplitude = ring_attractor_phases(a, b)
+        phase, amplitude = ring_attractor_phases(a, b)  # only once
         return x_final, phase, amplitude
 
 def gradnorm_perception(x):
