@@ -211,7 +211,7 @@ class GenePropCA(torch.nn.Module):
         self.chn = chn
         self.gene_size = gene_size
         self.private = chn - gene_size - recurrent_gene - modulatory_gene 
-        self.RA = recurrent_gene + modularoty_gene
+        self.RA = recurrent_gene + modulatory_gene
         self.fast_channels = chn - self.RA 
     
         # Compute input size dynamically like IsoCA
