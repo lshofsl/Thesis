@@ -182,15 +182,13 @@ class GeneCA(torch.nn.Module):
     def __init__(self, chn=12, hidden_n=96, gene_size=3, recurrent_gene =3, modulatory_gene=3):
         super().__init__()
         self.chn = chn
-        self.public = chn - gene_size - recurrent_gene - modulatory_gene  # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
+        public = chn - gene_size - recurrent_gene - modulatory_gene  # GeneNCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
         self.private = gene_size 
         self.fast_channels = self.public + self.private
         
-        dummy = torch.zeros([1, 16, 8, 8], device="cuda:0")
-        perc_chn = reduced_perception(dummy, 0).shape[1]
         
-        self.w1 = torch.nn.Conv2d(16 + 3 * (16), hidden_n, 1) 
-        self.w2 = torch.nn.Conv2d(hidden_n, self.public, 1, bias=False)  #Only for RGBA+hidden channels 
+        self.w1 = torch.nn.Conv2d(4*chn, hidden_n, 1)
+        self.w2 = torch.nn.Conv2d(hidden_n, public, 1, bias=False)  #Only for RGBA+hidden channels 
         self.w2.weight.data.zero_()
         
         
@@ -228,7 +226,7 @@ class GeneCA(torch.nn.Module):
         phase, amplitude = ring_attractor_phases(a, b)
 
         # Slow RA updates
-        if step % k == 0 or step == 0: # Update the RA every k steps (including the first step)
+        if step % k == 0 : # Update the RA every k steps (including the first step)
             Q = slow_perception(x[:, :4], x[:, 4:13]) 
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
