@@ -178,14 +178,14 @@ def slow_perception(rgba, hidden):   #Here we take the NCA channels and compute 
 
 
 
-class GeneCA(torch.nn.Module):
+class NCA(torch.nn.Module):
     def __init__(self, chn=12, hidden_n=96, recurrent =3, modulatory=3):
         super().__init__()
         self.chn = chn
         public = chn - recurrent - modulatory  # NCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
 
         
-        dummy = torch.zeros([1, 16, 8, 8], device="cuda:0")
+        dummy = torch.zeros([1, public, 8, 8], device="cuda:0")
         perc_chn = reduced_perception(dummy, 0).shape[1]
     
         self.w1 = torch.nn.Conv2d(perc_chn, hidden_n, 1)
@@ -235,7 +235,7 @@ class GeneCA(torch.nn.Module):
 
 
         # Phase/Amplitude initialization
-        phase, amplitude = ring_attractor_phases(a, b)
+        #phase, amplitude = ring_attractor_phases(a, b)
 
         # Slow RA updates
         if step % k == 0 : # Update the RA every k steps (including the first step)
@@ -251,14 +251,14 @@ class GeneCA(torch.nn.Module):
 
             # Use of the new RA states to compute the modulation for the gene propagation
             a, b, d = new_a, new_b, new_d
-            ra_stack = torch.cat([a, b, d], dim=1)
             
-        gamma = 1.0 + torch.tanh(self.mod_gamma(ra_stack))   # bounded in (0, 2), starts at 1 (identity)
-        beta  = torch.tanh(self.mod_beta(ra_stack))            # bounded in (-1, 1), starts at 0
+        ra_stack = torch.cat([a, b, d], dim=1)  # Final a,b,d states after the RA dynamics evolution 
+        gamma = 1.0 + torch.tanh(self.mod_gamma(ra_stack))
+        beta  = torch.tanh(self.mod_beta(ra_stack))
 
 
         # 3. Fast NCA Logic
-        fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + hidden for the fast perception
+        fast_input = reduced_perception(x[:, :public], 0) # We only use the RGBA + hidden for the fast perception
         h = self.w1(fast_input)
         h = gamma * h + beta
         y = self.w2(torch.relu(h)) 
