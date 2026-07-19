@@ -253,8 +253,8 @@ class GeneCA(torch.nn.Module):
             a, b, d = new_a, new_b, new_d
             ra_stack = torch.cat([a, b, d], dim=1)
             
-            gamma = 1.0 + torch.tanh(self.mod_gamma(ra_stack))   # bounded in (0, 2), starts at 1 (identity)
-            beta  = torch.tanh(self.mod_beta(ra_stack))            # bounded in (-1, 1), starts at 0
+        gamma = 1.0 + torch.tanh(self.mod_gamma(ra_stack))   # bounded in (0, 2), starts at 1 (identity)
+        beta  = torch.tanh(self.mod_beta(ra_stack))            # bounded in (-1, 1), starts at 0
 
 
         # 3. Fast NCA Logic
