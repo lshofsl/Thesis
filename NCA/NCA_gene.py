@@ -206,11 +206,23 @@ class GeneCA(torch.nn.Module):
         self.slow_input_net = torch.nn.Conv2d(5, 3, kernel_size=1)
         # Translation from the RA state to the gene modulation output
         # a,b,d -> m_g, m_s, m_r
-        self.modulator_net = torch.nn.Conv2d(3, 3, kernel_size=1)
-        self.mod_proj = torch.nn.Conv2d(3, hidden_n, 1)   # Projection of the RA modulation into the hidden space of the NCA network
-        torch.nn.init.normal_(self.mod_proj.weight, std=0.01)
-        torch.nn.init.zeros_(self.mod_proj.bias)  #Initialization near of zero of the modulation projection to avoid instabilities at the beginning of training
+        
+        #self.modulator_net = torch.nn.Conv2d(3, 3, kernel_size=1)
+        #self.mod_proj = torch.nn.Conv2d(3, hidden_n, 1)   # Projection of the RA modulation into the hidden space of the NCA network
+        #torch.nn.init.normal_(self.mod_proj.weight, std=0.01)
+        #torch.nn.init.zeros_(self.mod_proj.bias)  #Initialization near of zero of the modulation projection to avoid instabilities at the beginning of training
 
+
+        #FiLM modulation
+        self.mod_gamma = torch.nn.Conv2d(3, hidden_n, 1)
+        self.mod_beta  = torch.nn.Conv2d(3, hidden_n, 1)
+        
+        
+        torch.nn.init.zeros_(self.mod_gamma.weight)
+        torch.nn.init.zeros_(self.mod_gamma.bias)
+
+        torch.nn.init.normal_(self.mod_beta.weight, std=0.01)
+        torch.nn.init.zeros_(self.mod_beta.bias)
         
         
     def forward(self, x, update_rate=0.5,  step=0, k=4):
@@ -240,13 +252,15 @@ class GeneCA(torch.nn.Module):
             # Use of the new RA states to compute the modulation for the gene propagation
             a, b, d = new_a, new_b, new_d
             ra_stack = torch.cat([a, b, d], dim=1)
-            mod = self.modulator_net(ra_stack)
             
+            gamma = 1.0 + torch.tanh(self.mod_gamma(ra_stack))   # bounded in (0, 2), starts at 1 (identity)
+            beta  = torch.tanh(self.mod_beta(ra_stack))            # bounded in (-1, 1), starts at 0
+
 
         # 3. Fast NCA Logic
         fast_input = reduced_perception(x[:, :16], 0) # We only use the RGBA + hidden for the fast perception
-        h = self.w1(fast_input)          
-        h = h + torch.tanh(self.mod_proj(mod))        # We project the RA modulation into the hidden space. We do this as we work with 2 time scales, the RA modulation should affect the hidden representation of the NCA before the output layer.
+        h = self.w1(fast_input)
+        h = gamma * h + beta
         y = self.w2(torch.relu(h)) 
         
         # Masks
