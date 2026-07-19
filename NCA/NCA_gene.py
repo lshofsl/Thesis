@@ -179,17 +179,19 @@ def slow_perception(rgba, hidden):   #Here we take the NCA channels and compute 
 
 
 class NCA(torch.nn.Module):
-    def __init__(self, chn=12, hidden_n=96, recurrent =3, modulatory=3):
+    def __init__(self, chn=16, hidden_n=96, recurrent =3, modulatory=3):
         super().__init__()
         self.chn = chn
-        public = chn - recurrent - modulatory  # NCA update only the RGBA+hidden channels but perceives all the channles except RA and modulatory gene channels
+        self.public = chn - recurrent - modulatory  # NCA fast only read RGBA+hidden to create the perception vector 
 
         
-        dummy = torch.zeros([1, public, 8, 8], device="cuda:0")
+        dummy = torch.zeros([1, self.public, 8, 8], device="cuda:0")
         perc_chn = reduced_perception(dummy, 0).shape[1]
-    
+        
+        
+        # The MLP works as same as the baseline NCA, the RA dynamics are only injected at the end, they do not participate on the MLP
         self.w1 = torch.nn.Conv2d(perc_chn, hidden_n, 1)
-        self.w2 = torch.nn.Conv2d(hidden_n, public, 1, bias=False)  #Only for RGBA+hidden channels 
+        self.w2 = torch.nn.Conv2d(hidden_n, self.public, 1, bias=False)  
         self.w2.weight.data.zero_()
         
         
@@ -197,27 +199,20 @@ class NCA(torch.nn.Module):
         self.alpha = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the activator/phase
         self.beta  = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the inhibitor/injury
         self.omega = torch.nn.Parameter(torch.tensor(0.0)) # Angular drift
-        self.K     = torch.nn.Parameter(torch.tensor(0.5)) # Diffusion strength
-        self.kappa = torch.nn.Parameter(torch.tensor(0.5)) # Spatial coupling between activator and inhibitor
+        self.K     = torch.nn.Parameter(torch.tensor(0.5)) # Spatial coupling between activator and inhibitor
+        self.kappa = torch.nn.Parameter(torch.tensor(0.5)) # Diffusion strength 
         self.dt    = 0.1
 
         # Inputs for the slow perception of the RA 
         # Q -> Ia, Ib, Id
         self.slow_input_net = torch.nn.Conv2d(5, 3, kernel_size=1)
-        # Translation from the RA state to the gene modulation output
+        # With FiLM modulation we take the a,b,d states to the mod channels 
         # a,b,d -> m_g, m_s, m_r
-        
-        #self.modulator_net = torch.nn.Conv2d(3, 3, kernel_size=1)
-        #self.mod_proj = torch.nn.Conv2d(3, hidden_n, 1)   # Projection of the RA modulation into the hidden space of the NCA network
-        #torch.nn.init.normal_(self.mod_proj.weight, std=0.01)
-        #torch.nn.init.zeros_(self.mod_proj.bias)  #Initialization near of zero of the modulation projection to avoid instabilities at the beginning of training
-
-
         #FiLM modulation
         self.mod_gamma = torch.nn.Conv2d(3, hidden_n, 1)
         self.mod_beta  = torch.nn.Conv2d(3, hidden_n, 1)
         
-        
+        # Initialization on zeros as the NCA architecture does 
         torch.nn.init.zeros_(self.mod_gamma.weight)
         torch.nn.init.zeros_(self.mod_gamma.bias)
 
@@ -258,7 +253,7 @@ class NCA(torch.nn.Module):
 
 
         # 3. Fast NCA Logic
-        fast_input = reduced_perception(x[:, :public], 0) # We only use the RGBA + hidden for the fast perception
+        fast_input = reduced_perception(x[:, :self.public], 0) # We only use the RGBA + hidden for the fast perception
         h = self.w1(fast_input)
         h = gamma * h + beta
         y = self.w2(torch.relu(h)) 
