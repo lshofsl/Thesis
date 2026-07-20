@@ -285,4 +285,56 @@ class NCA(torch.nn.Module):
 
 
 
+class NCA_onlymod(torch.nn.Module):
+    def __init__(self, public=16, m_dim=3, hidden_n=96, m_mode='fixed'):
+        super().__init__()
+        self.public = public
+        self.m_dim = m_dim
+        self.m_mode = m_mode  # It can be fixed or with a small feedforward network  
+
+        dummy = torch.zeros([1, public, 8, 8])
+        perc_chn = reduced_perception(dummy, 0).shape[1]
+
+        self.w1 = torch.nn.Conv2d(perc_chn, hidden_n, 1)
+        self.w2 = torch.nn.Conv2d(hidden_n, public, 1, bias=False)
+        self.w2.weight.data.zero_()
+
+        # FiLM conditioned on the modulation channels 
+        self.film_gamma = torch.nn.Conv2d(m_dim, hidden_n, 1)
+        self.film_beta  = torch.nn.Conv2d(m_dim, hidden_n, 1)
+        torch.nn.init.zeros_(self.film_gamma.weight)
+        torch.nn.init.zeros_(self.film_gamma.bias)
+        torch.nn.init.normal_(self.film_beta.weight, std=0.01)
+        torch.nn.init.zeros_(self.film_beta.bias)
+
+        if m_mode == 'feedforward':
+            self.m_feedforward = torch.nn.Conv2d(public, m_dim, 1)
+
+    def forward(self, x, update_rate=0.5):
+        prefix = x[:, :self.public].clone()
+
+        if self.m_mode == 'fixed':
+            m = x[:, self.public:self.public + self.m_dim].clone()  # fix never updated
+        else: 
+            m = torch.sigmoid(self.m_feedforward(x[:, :self.public]))  # recomputed fresh each step depending on the public channels 
+
+        fast_input = reduced_perception(x[:, :self.public], 0)
+        z = self.w1(fast_input)    # Firs MLP channel for the FiLM modulation
+        gamma = 1.0 + torch.tanh(self.film_gamma(m))
+        beta  = torch.tanh(self.film_beta(m))
+        z_prime = gamma * z + beta        
+        y = self.w2(torch.relu(z_prime))
+
+        update_mask = (torch.rand(y.shape[0], 1, y.shape[2], y.shape[3], device=x.device) + update_rate).floor()
+        xmp = torch.nn.functional.pad(x[:, 3:4], pad=[1, 1, 1, 1], mode="circular")
+        pre_life_mask = (torch.nn.functional.max_pool2d(xmp, 3, 1, 0) > 0.1).to(y.dtype)
+
+        delta = y * update_mask * pre_life_mask
+        new_public = prefix + delta
+
+        x_final = torch.cat([new_public, m], dim=1)
+        return x_final
+
+
+
 
