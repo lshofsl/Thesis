@@ -286,17 +286,17 @@ class NCA(torch.nn.Module):
 
 
 class NCA_onlymod(torch.nn.Module):
-    def __init__(self, public=16, m_dim=3, hidden_n=96, m_mode='fixed'):
+    def __init__(self, public=16, m_dim=3, hidden_n=64, m_mode='fixed'):
         super().__init__()
         self.public = public
         self.m_dim = m_dim
         self.m_mode = m_mode  # It can be fixed or with a small feedforward network  
 
-        dummy = torch.zeros([1, public, 8, 8])
+        dummy = torch.zeros([1, self.public, 8, 8])
         perc_chn = reduced_perception(dummy, 0).shape[1]
 
         self.w1 = torch.nn.Conv2d(perc_chn, hidden_n, 1)
-        self.w2 = torch.nn.Conv2d(hidden_n, public, 1, bias=False)
+        self.w2 = torch.nn.Conv2d(hidden_n, self.public, 1, bias=False)
         self.w2.weight.data.zero_()
 
         # FiLM conditioned on the modulation channels 
