@@ -3,19 +3,19 @@ from sys import prefix
 
 import torch
 
-def perchannel_conv(x, filters):
-    b, ch, h, w = x.shape
-    y = x.reshape(b * ch, 1, h, w)
-    y = torch.nn.functional.pad(y, [1, 1, 1, 1], 'circular')
-    y = torch.nn.functional.conv2d(y, filters[:, None])
-    return y.reshape(b, -1, h, w)
-
 
 ident = torch.tensor([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]], dtype=torch.float32, device="cuda:0")
 ones = torch.tensor([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], dtype=torch.float32, device="cuda:0")
 sobel_x = torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]], dtype=torch.float32, device="cuda:0")
 lap = torch.tensor([[1.0, 2.0, 1.0], [2.0, -12, 2.0], [1.0, 2.0, 1.0]], dtype=torch.float32, device="cuda:0")
 gaus = torch.tensor([[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]], dtype=torch.float32, device="cuda:0")
+
+def perchannel_conv(x, filters):
+    b, ch, h, w = x.shape
+    y = x.reshape(b * ch, 1, h, w)
+    y = torch.nn.functional.pad(y, [1, 1, 1, 1], 'circular')
+    y = torch.nn.functional.conv2d(y, filters[:, None].to(x.device))
+    return y.reshape(b, -1, h, w)
 
 
 def perception(x, mask_n=0):
