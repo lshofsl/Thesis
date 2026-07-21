@@ -257,8 +257,8 @@ class NCA_RAMod(torch.nn.Module):
             
         ra_stack = torch.cat([a, b, d], dim=1)          # (B, 3, H, W)
         m = torch.sigmoid(self.mod_output_net(ra_stack)) 
-        gamma = 1.0 + torch.tanh(self.mod_gamma(m))
-        beta  = torch.tanh(self.mod_beta(m))
+        gamma = 1.0 + torch.tanh(self.film_gamma(m))
+        beta  = torch.tanh(self.film_beta(m))
         
         #Final mod 
         m_g = m[:, 0:1]  # growth competence
