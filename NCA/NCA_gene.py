@@ -216,8 +216,8 @@ class NCA_RAMod(torch.nn.Module):
         # a,b,d -> m_g, m_s, m_r
         #FiLM modulation
         # Initialization on zeros as the NCA architecture does 
-        self.film_gamma = torch.nn.Conv2d(m_dim, hidden_n, 1)
-        self.film_beta  = torch.nn.Conv2d(m_dim, hidden_n, 1)
+        self.film_gamma = torch.nn.Conv2d(3, hidden_n, 1)
+        self.film_beta  = torch.nn.Conv2d(3, hidden_n, 1)
         
         torch.nn.init.zeros_(self.film_gamma.weight)
         torch.nn.init.zeros_(self.film_gamma.bias)
