@@ -178,11 +178,137 @@ def slow_perception(rgba, hidden):   #Here we take the NCA channels and compute 
 
 
 
-class NCA(torch.nn.Module):
-    def __init__(self, chn=16, hidden_n=96, recurrent =3, modulatory=3):
+
+class NCA_RAMod(torch.nn.Module):
+    def __init__(self, chn=22, hidden_n=96, recurrent =3, modulatory=3):
         super().__init__()
         self.chn = chn
         self.public = chn - recurrent - modulatory  # NCA fast only read RGBA+hidden to create the perception vector 
+
+        
+        dummy = torch.zeros([1, self.public, 8, 8], device="cuda:0")
+        perc_chn = reduced_perception(dummy, 0).shape[1]
+        
+        
+        # The MLP works as same as the baseline NCA, the RA dynamics are only injected at the end, they do not participate on the MLP
+        self.w1 = torch.nn.Conv2d(perc_chn, hidden_n, 1)
+        self.w2 = torch.nn.Conv2d(hidden_n, self.public, 1, bias=False)  
+        self.w2.weight.data.zero_()
+        
+        
+        #Parameter of the RA 
+        self.alpha = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the activator/phase
+        self.beta  = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the inhibitor/injury
+        self.omega = torch.nn.Parameter(torch.tensor(0.0)) # Angular drift
+        self.K     = torch.nn.Parameter(torch.tensor(0.5)) # Spatial coupling between activator and inhibitor
+        self.kappa = torch.nn.Parameter(torch.tensor(0.5)) # Diffusion strength 
+        self.dt    = 0.1
+
+        # Inputs for the slow perception of the RA 
+        # Q -> Ia, Ib, Id
+        self.slow_input_net = torch.nn.Conv2d(5, 3, kernel_size=1)
+        # Modulation channels
+        self.mod_output_net = torch.nn.Conv2d(3, 3, kernel_size=1)
+        #Initialization on zeros 
+        torch.nn.init.zeros_(self.mod_output_net.weight)
+        torch.nn.init.zeros_(self.mod_output_net.bias)
+        # With FiLM modulation we take the a,b,d states to the mod channels 
+        # a,b,d -> m_g, m_s, m_r
+        #FiLM modulation
+        self.mod_gamma = torch.nn.Conv2d(3, hidden_n, 1)
+        self.mod_beta  = torch.nn.Conv2d(3, hidden_n, 1)
+        
+        # Initialization on zeros as the NCA architecture does 
+        torch.nn.init.zeros_(self.mod_gamma.weight)
+        torch.nn.init.zeros_(self.mod_gamma.bias)
+
+        torch.nn.init.normal_(self.mod_beta.weight, std=0.01)
+        torch.nn.init.zeros_(self.mod_beta.bias)
+        
+        
+    def forward(self, x, update_rate=0.5,  step=0, k=4):
+        #Initialize variables from x
+        prefix = x[:, :16, ...].clone()    # RGBA + Hidden
+        a = x[:, 16:17].clone()
+        b = x[:, 17:18].clone()
+        d = x[:, 18:19].clone()
+        m_g = x[:, 19:20].clone()
+        m_r = x[:, 20:21].clone()
+        m_s = x[:, 21:22].clone()
+        
+
+
+        # Phase/Amplitude initialization
+        #phase, amplitude = ring_attractor_phases(a, b)
+
+        # Slow RA updates
+        if step % k == 0 : # Update the RA every k steps (including the first step)
+            Q = slow_perception(x[:, :4], x[:, 4:16]) 
+            I_signals = self.slow_input_net(Q)
+            Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
+            
+            new_a, new_b, new_d = discrete_update(
+                a, b, d, self.alpha, self.beta, self.omega, 
+                self.kappa, self.K, Ia, Ib, Id, dt=self.dt
+            )
+            new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
+
+            # Use of the new RA states to compute the modulation for the gene propagation
+            a, b, d = new_a, new_b, new_d
+            
+        ra_stack = torch.cat([a, b, d], dim=1)          # (B, 3, H, W)
+        m = torch.sigmoid(self.mod_output_net(ra_stack)) 
+        gamma = 1.0 + torch.tanh(self.mod_gamma(m))
+        beta  = torch.tanh(self.mod_beta(m))
+        
+        #Final mod 
+        m_g = m[:, 0:1]  # growth competence
+        m_r = m[:, 1:2]  # regeneration gate
+        m_s = m[:, 2:3]  # maintenance / stability gat
+
+
+        # 3. Fast NCA Logic
+        fast_input = reduced_perception(x[:, :self.public], 0)
+        z = self.w1(fast_input)    # Firs MLP channel for the FiLM modulation
+        gamma = 1.0 + torch.tanh(self.film_gamma(m))
+        beta  = torch.tanh(self.film_beta(m))
+        z_prime = gamma * z + beta        
+        y = self.w2(torch.relu(z_prime))
+        
+        # Masks
+        b_sz, c_sz, h, w = y.shape
+        update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) + update_rate).floor()
+        xmp = torch.nn.functional.pad(x[:, 3:4, ...], pad=[1, 1, 1, 1], mode="circular")
+        pre_life_mask = (torch.nn.functional.max_pool2d(xmp, 3, 1, 0) > 0.1).to(x.device)
+
+
+        #delta update 
+        delta = y * update_mask * pre_life_mask.to(y.dtype)
+
+        #  Update of the new public channels (prefix)
+        new_public =  prefix + delta 
+        # We concatenate all parts to create x_final without ever modifying the input x
+        x_final = torch.cat([
+            new_public, # 0:16
+            a,          # 16
+            b,          # 17
+            d,          # 18
+            m_g,        # 19
+            m_r,        # 20
+            m_s,        # 21
+        ], dim=1)
+
+        phase, amplitude = ring_attractor_phases(a, b)
+        return x_final, phase, amplitude
+
+
+
+
+class NCA_onlyRA(torch.nn.Module):
+    def __init__(self, chn=19, hidden_n=96, recurrent =3):
+        super().__init__()
+        self.chn = chn
+        self.public = chn - recurrent   # NCA fast only read RGBA+hidden to create the perception vector 
 
         
         dummy = torch.zeros([1, self.public, 8, 8], device="cuda:0")
@@ -226,11 +352,7 @@ class NCA(torch.nn.Module):
         a = x[:, 16:17].clone()
         b = x[:, 17:18].clone()
         d = x[:, 18:19].clone()
-        mod = x[:, 19:22].clone()
 
-
-        # Phase/Amplitude initialization
-        #phase, amplitude = ring_attractor_phases(a, b)
 
         # Slow RA updates
         if step % k == 0 : # Update the RA every k steps (including the first step)
@@ -276,7 +398,6 @@ class NCA(torch.nn.Module):
             a,          # 16
             b,          # 17
             d,          # 18
-            mod         # 19:22
         ], dim=1)
 
         phase, amplitude = ring_attractor_phases(a, b)
