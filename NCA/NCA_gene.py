@@ -215,15 +215,14 @@ class NCA_RAMod(torch.nn.Module):
         # With FiLM modulation we take the a,b,d states to the mod channels 
         # a,b,d -> m_g, m_s, m_r
         #FiLM modulation
-        self.mod_gamma = torch.nn.Conv2d(3, hidden_n, 1)
-        self.mod_beta  = torch.nn.Conv2d(3, hidden_n, 1)
-        
         # Initialization on zeros as the NCA architecture does 
-        torch.nn.init.zeros_(self.mod_gamma.weight)
-        torch.nn.init.zeros_(self.mod_gamma.bias)
-
-        torch.nn.init.normal_(self.mod_beta.weight, std=0.01)
-        torch.nn.init.zeros_(self.mod_beta.bias)
+        self.film_gamma = torch.nn.Conv2d(m_dim, hidden_n, 1)
+        self.film_beta  = torch.nn.Conv2d(m_dim, hidden_n, 1)
+        
+        torch.nn.init.zeros_(self.film_gamma.weight)
+        torch.nn.init.zeros_(self.film_gamma.bias)
+        torch.nn.init.normal_(self.film_beta.weight, std=0.01)
+        torch.nn.init.zeros_(self.film_beta.bias)
         
         
     def forward(self, x, update_rate=0.5,  step=0, k=4):
