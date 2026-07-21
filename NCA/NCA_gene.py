@@ -20,7 +20,7 @@ def perchannel_conv(x, filters):
 
 def perception(x, mask_n=0):
 
-    filters = torch.stack([sobel_x, sobel_x.T, lap])
+    filters = torch.stack([ident,sobel_x, sobel_x.T, lap])
     if mask_n != 0:
         n = x.shape[1]
         padd = torch.zeros((x.shape[0], 3 * mask_n, x.shape[2], x.shape[3]), device="cuda:0")
@@ -44,7 +44,7 @@ def masked_perception(x, mask_n=0):
 
 def reduced_perception(x, mask_n=0):
 
-    filters = torch.stack([sobel_x, sobel_x.T, lap])
+    filters = torch.stack([ident,sobel_x, sobel_x.T, lap])
     x_redu = x[:,0:x.shape[1]-mask_n]
     obs = perchannel_conv(x_redu,filters)
     return torch.cat((x,obs), dim = 1 )
@@ -297,8 +297,8 @@ class NCA_RAMod(torch.nn.Module):
             m_s,        # 21
         ], dim=1)
 
-        phase, amplitude = ring_attractor_phases(a, b)
-        return x_final, phase, amplitude
+        amplitude, phase = ring_attractor_phases(a, b)
+        return x_final, amplitude, phase
 
 
 
