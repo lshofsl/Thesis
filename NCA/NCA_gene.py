@@ -236,10 +236,6 @@ class NCA_RAMod(torch.nn.Module):
         m_s = x[:, 21:22].clone()
         
 
-
-        # Phase/Amplitude initialization
-        #phase, amplitude = ring_attractor_phases(a, b)
-
         # Slow RA updates
         if step % k == 0 : # Update the RA every k steps (including the first step)
             Q = slow_perception(x[:, :4], x[:, 4:16]) 
@@ -399,8 +395,8 @@ class NCA_onlyRA(torch.nn.Module):
             d,          # 18
         ], dim=1)
 
-        phase, amplitude = ring_attractor_phases(a, b)
-        return x_final, phase, amplitude
+        amplitude, phase = ring_attractor_phases(a, b)
+        return x_final, amplitude, phase
 
 
 
