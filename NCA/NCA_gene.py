@@ -44,7 +44,7 @@ def masked_perception(x, mask_n=0):
 
 def reduced_perception(x, mask_n=0):
 
-    filters = torch.stack([ident,sobel_x, sobel_x.T, lap])
+    filters = torch.stack([sobel_x, sobel_x.T, lap])
     x_redu = x[:,0:x.shape[1]-mask_n]
     obs = perchannel_conv(x_redu,filters)
     return torch.cat((x,obs), dim = 1 )
@@ -111,7 +111,7 @@ class ReducedCA(torch.nn.Module):
         return x
 
 class NCA(torch.nn.Module):
-    def __init__(self, chn=16, hidden_n=96):
+    def __init__(self, chn=16, hidden_n=64):
         super().__init__()
         self.chn = chn
         self.w1 = torch.nn.Conv2d(chn + 3 * (chn), hidden_n, 1)
