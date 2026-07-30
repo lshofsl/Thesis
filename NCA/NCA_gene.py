@@ -266,10 +266,15 @@ class NCA_RAMod(torch.nn.Module):
                 a, b, d, self.alpha, self.beta, self.omega, 
                 self.kappa, self.K, Ia, Ib, Id, dt=self.dt
             )
+            
+            #To avoid the negative grow of self.beta we bounded it using a sofplus function 
+            self.beta = torch.nn.functional.softplus(self.beta)
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
 
             # Use of the new RA states to compute the modulation for the gene propagation
             a, b, d = new_a, new_b, new_d
+            
+            
             
         ra_stack = torch.cat([a, b, d], dim=1)          # (B, 3, H, W)
         m = torch.sigmoid(self.mod_output_net(ra_stack)) 
