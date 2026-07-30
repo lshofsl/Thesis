@@ -262,13 +262,14 @@ class NCA_RAMod(torch.nn.Module):
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             
+            #To avoid the negative grow of self.beta we bounded it using a sofplus function 
+            beta_new = torch.nn.functional.softplus(self.beta)
+           
             new_a, new_b, new_d = discrete_update(
-                a, b, d, self.alpha, self.beta, self.omega, 
+                a, b, d, self.alpha, beta_new, self.omega, 
                 self.kappa, self.K, Ia, Ib, Id, dt=self.dt
             )
             
-            #To avoid the negative grow of self.beta we bounded it using a sofplus function 
-            self.beta = torch.nn.functional.softplus(self.beta)
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
 
             # Use of the new RA states to compute the modulation for the gene propagation
