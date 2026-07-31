@@ -119,14 +119,23 @@ class NCA(torch.nn.Module):
         self.w2.weight.data.zero_()
 
 
+    def get_alive_mask(self, x):
+        alpha = x[:, 3:4, :, :] 
+        padded_alpha = torch.nn.functional.pad(alpha, pad=[1, 1, 1, 1], mode="circular")
+        return torch.nn.functional.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
+
+
     def forward(self, x, update_rate=0.5):
+        pre_life_mask = self.get_alive_mask(x)
         y = reduced_perception(x, 0)
         y = self.w2(torch.relu(self.w1(y)))
         b, c, h, w = y.shape
         update_mask = (torch.rand(b, 1, h, w, device=x.device) + update_rate).floor()
-        xmp = torch.nn.functional.pad(x[:, None, 3, ...], pad=[1, 1, 1, 1], mode="circular")
-        pre_life_mask = torch.nn.functional.max_pool2d(xmp, 3, 1, 0, ).cuda() > 0.1
         x = x + y * update_mask * pre_life_mask
+        
+        #We apply a second life_mask to clean the background active cells 
+        post_life_mask = self.get_alive_mask(x)
+        x = x * post_life_mask
         return x
 
 
