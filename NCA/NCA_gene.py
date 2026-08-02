@@ -223,7 +223,7 @@ class NCA_RAMod(nn.Module):
         self.raw_beta = nn.Parameter(torch.tensor(-2.0)) # Latent decay rate of d (softplus will be apply)
         self.omega = nn.Parameter(torch.tensor(0.0)) # Angular drift frequency
         self.K = nn.Parameter(torch.tensor(0.4)) # Latent Activator spatial coupling 
-        self.kappa = nn.Parameter(torch.tensor(0.1)) # Latent d-field diffusion strength
+        self.raw_kappa = nn.Parameter(torch.tensor(-2.0)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
@@ -266,11 +266,12 @@ class NCA_RAMod(nn.Module):
             
             # Enforce Positivity on Physical Rates (Prevents blow-ups & bad loss curves)
             beta_val  = F.softplus(self.raw_beta) + 1e-4
+            kappa_val  = F.softplus(self.raw_kappa) + 1e-4
 
            
             new_a, new_b, new_d = discrete_update(
                 a, b, d, self.alpha, beta_val, self.omega, 
-                self.kappa, self.K, Ia, Ib, Id, dt=self.dt
+                kappa_val, self.K, Ia, Ib, Id, dt=self.dt
             )
             
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
