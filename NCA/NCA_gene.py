@@ -186,19 +186,21 @@ def consensus_update(a, b, dt, mode='local'):
     b = b + dt * (b_avg_norm - b)
     return a, b
 
-def slow_perception(rgba, hidden):   #Here we take the NCA channels and compute the local input of the slow controller
-    # v: RGBA, h 2 first hidden channels 
-    alpha = rgba[:, 3:4, :, :] # Extract ONLY the alpha channel
+def slow_perception(rgba, hidden):
+    alpha = rgba[:, 3:4, :, :]
     h_layers = hidden[:, 0:2, :, :]
 
+    # Morphological erosion (1 inside, 0 at boundary/outside)
     eroded = -torch.nn.functional.max_pool2d(-alpha, kernel_size=3, stride=1, padding=1)
-    edges = alpha - eroded
+    interior = eroded  # active in interior, silent at boundary
 
+    # Laplacian — negated so it's positive in interior, negative at boundary
     alpha_padded = torch.nn.functional.pad(alpha, [1,1,1,1], mode='circular')
     lap_alpha = torch.nn.functional.conv2d(alpha_padded, lap_kernel, padding=0)
+    lap_inward = -lap_alpha  # flipped sign
 
-    # Q has 5 channels: [alpha, edges, lap, h1, h2]
-    Q = torch.cat([alpha, edges, lap_alpha, h_layers], dim=1)
+    # Q: [alpha, interior, lap_inward, h1, h2]
+    Q = torch.cat([alpha, interior, lap_inward, h_layers], dim=1)
     return Q
 
 
