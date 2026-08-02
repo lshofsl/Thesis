@@ -222,8 +222,8 @@ class NCA_RAMod(nn.Module):
         self.alpha = nn.Parameter(torch.tensor(0.1)) # Decay rate of a, b
         self.raw_beta = nn.Parameter(torch.tensor(-2.0)) # Latent decay rate of d (softplus will be apply)
         self.omega = nn.Parameter(torch.tensor(0.0)) # Angular drift frequency
-        self.raw_K = nn.Parameter(torch.tensor(-1.0)) # Latent Activator spatial coupling (softplus will be apply)
-        self.raw_kappa = nn.Parameter(torch.tensor(-2.0)) # Latent d-field diffusion strength (softplus will be apply)
+        self.K = nn.Parameter(torch.tensor(0.4)) # Latent Activator spatial coupling 
+        self.kappa = nn.Parameter(torch.tensor(0.1)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
@@ -261,17 +261,16 @@ class NCA_RAMod(nn.Module):
         # 2. Slow Ring Attractor PDE Updates (Every k steps)
         if step % k == 0:
             Q = slow_perception(x[:, :4], x[:, 4:16]) 
-            I_signals = torch.tanh(self.slow_input_net(Q)) #Constraint of the signal to be in the range [-1,1]
+            I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             
             # Enforce Positivity on Physical Rates (Prevents blow-ups & bad loss curves)
             beta_val  = F.softplus(self.raw_beta) + 1e-4
-            kappa_val = F.softplus(self.raw_kappa) + 1e-4
-            K_val     = F.softplus(self.raw_K) + 1e-4
+
            
             new_a, new_b, new_d = discrete_update(
                 a, b, d, self.alpha, beta_val, self.omega, 
-                kappa_val, K_val, Ia, Ib, Id, dt=self.dt
+                self.kappa, self.K, Ia, Ib, Id, dt=self.dt
             )
             
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
