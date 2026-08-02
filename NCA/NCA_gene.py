@@ -265,8 +265,8 @@ class NCA_RAMod(nn.Module):
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             
             # Enforce Positivity on Physical Rates with an sqrt function
-            beta_phys  = torch.abs(self.raw_beta)  + 1e-4
-            kappa_phys = torch.abs(self.raw_kappa) + 1e-4
+            beta_val  = torch.abs(self.raw_beta)  + 1e-4
+            kappa_val = torch.abs(self.raw_kappa) + 1e-4
 
            
             new_a, new_b, new_d = discrete_update(
