@@ -2,7 +2,8 @@ from multiprocessing import dummy
 from sys import prefix
 
 import torch
-
+import torch.nn as nn
+import torch.nn.functional as F
 
 ident = torch.tensor([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]], dtype=torch.float32, device="cuda:0")
 sobel_y = torch.tensor([[1.0, 2.0, 1.0], [1.0, 1.0, 1.0], [-1.0, -2.0, -1.0]], dtype=torch.float32, device="cuda:0")
