@@ -48,6 +48,13 @@ def reduced_perception(x, mask_n=0):
     x_redu = x[:,0:x.shape[1]-mask_n]
     obs = perchannel_conv(x_redu,filters)
     return torch.cat((x,obs), dim = 1 )
+    
+    
+    
+def get_alive_mask(x):
+    alpha = x[:, 3:4, :, :] 
+    padded_alpha = torch.nn.functional.pad(alpha, pad=[1, 1, 1, 1], mode="circular")
+    return torch.nn.functional.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
 
 class DummyVCA(torch.nn.Module):
     def __init__(self, chn=12, hidden_n=96, mask_n=0):
@@ -117,12 +124,6 @@ class NCA(torch.nn.Module):
         self.w1 = torch.nn.Conv2d(chn + 3 * (chn), hidden_n, 1)
         self.w2 = torch.nn.Conv2d(hidden_n, chn, 1, bias=False)
         self.w2.weight.data.zero_()
-
-
-    def get_alive_mask(self, x):
-        alpha = x[:, 3:4, :, :] 
-        padded_alpha = torch.nn.functional.pad(alpha, pad=[1, 1, 1, 1], mode="circular")
-        return torch.nn.functional.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
 
 
     def forward(self, x, update_rate=0.5):
@@ -208,116 +209,109 @@ def slow_perception(rgba, hidden):   #Here we take the NCA channels and compute 
 
 
 
-class NCA_RAMod(torch.nn.Module):
-    def __init__(self, chn=22, hidden_n=96, recurrent =3, modulatory=3):
+class NCA_RAMod(nn.Module):
+    def __init__(self, chn=22, hidden_n=96, recurrent=3, modulatory=3):
         super().__init__()
         self.chn = chn
-        self.public = chn - recurrent - modulatory  # NCA fast only read RGBA+hidden to create the perception vector 
+        self.public = chn - recurrent - modulatory  # Public channels = 16
 
-        
         dummy = torch.zeros([1, self.public, 8, 8], device="cuda:0")
         perc_chn = reduced_perception(dummy, 0).shape[1]
-        
-        
-        # The MLP works as same as the baseline NCA, the RA dynamics are only injected at the end, they do not participate on the MLP
-        self.w1 = torch.nn.Conv2d(perc_chn, hidden_n, 1)
-        self.w2 = torch.nn.Conv2d(hidden_n, self.public, 1, bias=False)  
+
+        # Standard NCA Fast Network
+        self.w1 = nn.Conv2d(perc_chn, hidden_n, 1)
+        self.w2 = nn.Conv2d(hidden_n, self.public, 1, bias=False)  
         self.w2.weight.data.zero_()
-        
-        
-        #Parameter of the RA 
-        self.alpha = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the activator/phase
-        self.beta  = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the inhibitor/injury
-        self.omega = torch.nn.Parameter(torch.tensor(0.0)) # Angular drift
-        self.K     = torch.nn.Parameter(torch.tensor(0.5)) # Spatial coupling between activator and inhibitor
-        self.kappa = torch.nn.Parameter(torch.tensor(0.5)) # Diffusion strength 
-        self.dt    = 0.1
 
-        # Inputs for the slow perception of the RA 
-        # Q -> Ia, Ib, Id
-        self.slow_input_net = torch.nn.Conv2d(5, 3, kernel_size=1)
+        # Learnable PDE Parameters (Raw latent representations)
+        self.alpha = nn.Parameter(torch.tensor(0.1)) # Decay rate of a, b
+        self.raw_beta = nn.Parameter(torch.tensor(0.1)) # Latent decay rate of d
+        self.omega = nn.Parameter(torch.tensor(0.0)) # Angular drift frequency
+        self.raw_K = nn.Parameter(torch.tensor(0.5)) # Latent Activator spatial coupling
+        self.raw_kappa = nn.Parameter(torch.tensor(0.5)) # Latent d-field diffusion strength 
+        self.dt = 0.1
+
+        # Inputs for slow RA perception
+        self.slow_input_net = nn.Conv2d(5, 3, kernel_size=1)
+        
         # Modulation channels
-        self.mod_output_net = torch.nn.Conv2d(3, 3, kernel_size=1)
-        #Initialization on zeros 
-        torch.nn.init.zeros_(self.mod_output_net.weight)
-        torch.nn.init.zeros_(self.mod_output_net.bias)
-        # With FiLM modulation we take the a,b,d states to the mod channels 
-        # a,b,d -> m_g, m_s, m_r
-        #FiLM modulation
-        # Initialization on zeros as the NCA architecture does 
-        self.film_gamma = torch.nn.Conv2d(3, hidden_n, 1)
-        self.film_beta  = torch.nn.Conv2d(3, hidden_n, 1)
-        
-        torch.nn.init.zeros_(self.film_gamma.weight)
-        torch.nn.init.zeros_(self.film_gamma.bias)
-        torch.nn.init.normal_(self.film_beta.weight, std=0.01)
-        torch.nn.init.zeros_(self.film_beta.bias)
-        
-        
-    def forward(self, x, update_rate=0.5,  step=0, k=4):
-        #Initialize variables from x
-        prefix = x[:, :16, ...].clone()    # RGBA + Hidden
-        a = x[:, 16:17].clone()
-        b = x[:, 17:18].clone()
-        d = x[:, 18:19].clone()
-        m_g = x[:, 19:20].clone()
-        m_r = x[:, 20:21].clone()
-        m_s = x[:, 21:22].clone()
-        
+        self.mod_output_net = nn.Conv2d(3, 3, kernel_size=1)
+        nn.init.zeros_(self.mod_output_net.weight)
+        nn.init.zeros_(self.mod_output_net.bias)
 
-        # Slow RA updates
-        if step % k == 0 : # Update the RA every k steps (including the first step)
+        # FiLM Modulation Layers
+        self.film_gamma = nn.Conv2d(3, hidden_n, 1)
+        self.film_beta  = nn.Conv2d(3, hidden_n, 1)
+        
+        nn.init.zeros_(self.film_gamma.weight)
+        nn.init.zeros_(self.film_gamma.bias)
+        nn.init.normal_(self.film_beta.weight, std=0.01)
+        nn.init.zeros_(self.film_beta.bias)
+
+    def forward(self, x, update_rate=0.5, step=0, k=4):
+        # 1. Split state channels
+        prefix = x[:, :16].clone()    # RGBA + Hidden (Public)
+        a = x[:, 16:17].clone()       # Oscillator a
+        b = x[:, 17:18].clone()       # Oscillator b
+        d = x[:, 18:19].clone()       # Diffusion/memory field d
+        m_g = x[:, 19:20].clone()     # Growth gate
+        m_r = x[:, 20:21].clone()     # Regeneration gate
+        m_s = x[:, 21:22].clone()     # Stability gate
+
+        # 2. Slow Ring Attractor PDE Updates (Every k steps)
+        if step % k == 0:
             Q = slow_perception(x[:, :4], x[:, 4:16]) 
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             
-            #To avoid the negative grow of self.beta we bounded it using a sofplus function 
-            beta_new = torch.nn.functional.softplus(self.beta)
+            # Enforce Positivity on Physical Rates (Prevents blow-ups & bad loss curves)
+            beta_val  = F.softplus(self.raw_beta) + 1e-4
+            kappa_val = F.softplus(self.raw_kappa) + 1e-4
+            K_val     = F.softplus(self.raw_K) + 1e-4
            
             new_a, new_b, new_d = discrete_update(
-                a, b, d, self.alpha, beta_new, self.omega, 
-                self.kappa, self.K, Ia, Ib, Id, dt=self.dt
+                a, b, d, self.alpha, beta_val, self.omega, 
+                kappa_val, K_val, Ia, Ib, Id, dt=self.dt
             )
             
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
 
-            # Use of the new RA states to compute the modulation for the gene propagation
+            # Update RA states
             a, b, d = new_a, new_b, new_d
             
-            
-            
-        ra_stack = torch.cat([a, b, d], dim=1)          # (B, 3, H, W)
+        # 3. Compute FiLM Modulation Signals from RA states
+        ra_stack = torch.cat([a, b, d], dim=1)           # (B, 3, H, W)
         m = torch.sigmoid(self.mod_output_net(ra_stack)) 
-        gamma = 1.0 + torch.tanh(self.film_gamma(m))
-        beta  = torch.tanh(self.film_beta(m))
         
-        #Final mod 
         m_g = m[:, 0:1]  # growth competence
         m_r = m[:, 1:2]  # regeneration gate
-        m_s = m[:, 2:3]  # maintenance / stability gat
+        m_s = m[:, 2:3]  # maintenance gate
 
+        # Compute FiLM parameters once
+        film_gamma_val = 1.0 + torch.tanh(self.film_gamma(m))
+        film_beta_val  = torch.tanh(self.film_beta(m))
 
-        # 3. Fast NCA Logic
-        fast_input = reduced_perception(x[:, :self.public], 0)
-        z = self.w1(fast_input)    # Firs MLP channel for the FiLM modulation
-        gamma = 1.0 + torch.tanh(self.film_gamma(m))
-        beta  = torch.tanh(self.film_beta(m))
-        z_prime = gamma * z + beta        
-        y = self.w2(torch.relu(z_prime))
+        # 4. Fast NCA Processing with FiLM Modulation
+        pre_life_mask = self.get_alive_mask(prefix)
+        fast_input = reduced_perception(prefix, 0)
         
-        # Masks
+        # Dense Layer 1
+        z = self.w1(fast_input)    
+        
+        # Apply FiLM Modulation to hidden features z
+        z_prime = film_gamma_val * z + film_beta_val        
+        
+        # Dense Layer 2
+        y = self.w2(F.relu(z_prime))
+        
+        # Stochastic Update & Alive Masking
         b_sz, c_sz, h, w = y.shape
         update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) + update_rate).floor()
-        xmp = torch.nn.functional.pad(x[:, 3:4, ...], pad=[1, 1, 1, 1], mode="circular")
-        pre_life_mask = (torch.nn.functional.max_pool2d(xmp, 3, 1, 0) > 0.1).to(x.device)
-
-
-        #delta update 
         delta = y * update_mask * pre_life_mask.to(y.dtype)
+        
+        new_public = (prefix + delta) * self.get_alive_mask(prefix)
 
-        #  Update of the new public channels (prefix)
-        new_public =  prefix + delta 
-        # We concatenate all parts to create x_final without ever modifying the input x
+        # 5. Re-assemble final tensor state
         x_final = torch.cat([
             new_public, # 0:16
             a,          # 16
@@ -329,7 +323,7 @@ class NCA_RAMod(torch.nn.Module):
         ], dim=1)
 
         amplitude, phase = ring_attractor_phases(a, b)
-        return x_final, amplitude, phase
+        return x_final, amplitude, phase, film_gamma_val, film_beta_val
 
 
 
@@ -405,6 +399,7 @@ class NCA_onlyRA(torch.nn.Module):
 
 
         # 3. Fast NCA Logic
+        pre_life_mask = self.get_alive_mask(x)
         fast_input = reduced_perception(x[:, :self.public], 0) # We only use the RGBA + hidden for the fast perception
         h = self.w1(fast_input)
         h = gamma * h + beta
@@ -413,15 +408,15 @@ class NCA_onlyRA(torch.nn.Module):
         # Masks
         b_sz, c_sz, h, w = y.shape
         update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) + update_rate).floor()
-        xmp = torch.nn.functional.pad(x[:, 3:4, ...], pad=[1, 1, 1, 1], mode="circular")
-        pre_life_mask = (torch.nn.functional.max_pool2d(xmp, 3, 1, 0) > 0.1).to(x.device)
+
 
 
         #delta update 
         delta = y * update_mask * pre_life_mask.to(y.dtype)
+        post_life_mask = self.get_alive_mask(x)
 
         #  Update of the new public channels (prefix)
-        new_public =  prefix + delta 
+        new_public =  (prefix + delta) * post_life_mask
         # We concatenate all parts to create x_final without ever modifying the input x
         x_final = torch.cat([
             new_public, # 0:16
@@ -469,6 +464,7 @@ class NCA_onlymod(torch.nn.Module):
         else: 
             m = torch.sigmoid(self.m_feedforward(x[:, :self.public]))  # recomputed fresh each step depending on the public channels 
 
+        pre_life_mask = self.get_alive_mask(x)
         fast_input = reduced_perception(x[:, :self.public], 0)
         z = self.w1(fast_input)    # Firs MLP channel for the FiLM modulation
         gamma = 1.0 + torch.tanh(self.film_gamma(m))
@@ -477,11 +473,11 @@ class NCA_onlymod(torch.nn.Module):
         y = self.w2(torch.relu(z_prime))
 
         update_mask = (torch.rand(y.shape[0], 1, y.shape[2], y.shape[3], device=x.device) + update_rate).floor()
-        xmp = torch.nn.functional.pad(x[:, 3:4], pad=[1, 1, 1, 1], mode="circular")
-        pre_life_mask = (torch.nn.functional.max_pool2d(xmp, 3, 1, 0) > 0.1).to(y.dtype)
 
+        post_life_mask = self.get_alive_mask(x)
+        
         delta = y * update_mask * pre_life_mask
-        new_public = prefix + delta
+        new_public = (prefix + delta) * post_life_mask
 
         x_final = torch.cat([new_public, m], dim=1)
         return x_final
