@@ -347,10 +347,10 @@ class NCA_onlyRA(torch.nn.Module):
         
         #Parameter of the RA 
         self.alpha = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the activator/phase
-        self.beta  = torch.nn.Parameter(torch.tensor(0.1)) # Decay rate of the inhibitor/injury
+        self.beta  = torch.nn.Parameter(torch.tensor(-1.0)) # Decay rate of the inhibitor/injury (sofplus will be applied)
         self.omega = torch.nn.Parameter(torch.tensor(0.0)) # Angular drift
-        self.K     = torch.nn.Parameter(torch.tensor(0.5)) # Spatial coupling between activator and inhibitor
-        self.kappa = torch.nn.Parameter(torch.tensor(0.5)) # Diffusion strength 
+        self.K     = torch.nn.Parameter(torch.tensor(-2.0)) # Spatial coupling between activator and inhibitor (sofplus will be applied)
+        self.kappa = torch.nn.Parameter(torch.tensor(-1.0)) # Diffusion strength (sofplus will be applied)
         self.dt    = 0.1
 
         # Inputs for the slow perception of the RA 
@@ -381,7 +381,7 @@ class NCA_onlyRA(torch.nn.Module):
         # Slow RA updates
         if step % k == 0 : # Update the RA every k steps (including the first step)
             Q = slow_perception(x[:, :4], x[:, 4:16]) 
-            I_signals = self.slow_input_net(Q)
+            I_signals = torch.tanh(self.slow_input_net(Q)) #Constraint of the signal to [-1,1]
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             
             new_a, new_b, new_d = discrete_update(
