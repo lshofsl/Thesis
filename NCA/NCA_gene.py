@@ -220,10 +220,10 @@ class NCA_RAMod(nn.Module):
 
         # Learnable PDE Parameters (Raw latent representations)
         self.alpha = nn.Parameter(torch.tensor(0.1)) # Decay rate of a, b
-        self.raw_beta = nn.Parameter(torch.tensor(-2.0)) # Latent decay rate of d (softplus will be apply)
+        self.raw_beta = nn.Parameter(torch.tensor(0.5)) # Latent decay rate of d (softplus will be apply)
         self.omega = nn.Parameter(torch.tensor(0.0)) # Angular drift frequency
         self.K = nn.Parameter(torch.tensor(0.4)) # Latent Activator spatial coupling 
-        self.raw_kappa = nn.Parameter(torch.tensor(-2.0)) # Latent d-field diffusion strength
+        self.raw_kappa = nn.Parameter(torch.tensor(0.3)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
@@ -264,9 +264,9 @@ class NCA_RAMod(nn.Module):
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             
-            # Enforce Positivity on Physical Rates (Prevents blow-ups & bad loss curves)
-            beta_val  = F.softplus(self.raw_beta) + 1e-4
-            kappa_val  = F.softplus(self.raw_kappa) + 1e-4
+            # Enforce Positivity on Physical Rates with an sqrt function
+           beta_phys  = torch.abs(self.raw_beta)  + 1e-4
+           kappa_phys = torch.abs(self.raw_kappa) + 1e-4
 
            
             new_a, new_b, new_d = discrete_update(
