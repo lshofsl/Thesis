@@ -220,10 +220,10 @@ class NCA_RAMod(nn.Module):
 
         # Learnable PDE Parameters (Raw latent representations)
         self.alpha = nn.Parameter(torch.tensor(0.1)) # Decay rate of a, b
-        self.raw_beta = nn.Parameter(torch.tensor(0.1)) # Latent decay rate of d
+        self.raw_beta = nn.Parameter(torch.tensor(-2.0)) # Latent decay rate of d
         self.omega = nn.Parameter(torch.tensor(0.0)) # Angular drift frequency
-        self.raw_K = nn.Parameter(torch.tensor(0.5)) # Latent Activator spatial coupling
-        self.raw_kappa = nn.Parameter(torch.tensor(0.5)) # Latent d-field diffusion strength 
+        self.raw_K = nn.Parameter(torch.tensor(-1.0)) # Latent Activator spatial coupling
+        self.raw_kappa = nn.Parameter(torch.tensor(-2.0)) # Latent d-field diffusion strength 
         self.dt = 0.1
 
         # Inputs for slow RA perception
