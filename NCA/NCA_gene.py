@@ -265,13 +265,17 @@ class NCA_RAMod(nn.Module):
         m_g = x[:, 19:20].clone()     # Growth gate
         m_r = x[:, 20:21].clone()     # Regeneration gate
         m_s = x[:, 21:22].clone()     # Stability gate
-
+        live_mask = (x[:, 3:4] > 0.1).float()  # alpha threshold
+        
         # 2. Slow Ring Attractor PDE Updates (Every k steps)
         if step % k == 0:
-            live_mask = (x[:, 3:4] > 0.1).float()  # alpha threshold
             Q = slow_perception(x[:, :4], x[:, 4:16])
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
+
+            Ia = Ia * live_mask
+            Ib = Ib * live_mask
+            Id = Id * live_mask
             
             beta_phys  = torch.abs(self.raw_beta)  + 1e-4
             kappa_phys = torch.abs(self.raw_kappa) + 1e-4
@@ -295,8 +299,8 @@ class NCA_RAMod(nn.Module):
         m_s = m[:, 2:3]  # maintenance gate
 
         # Compute FiLM parameters once
-        film_gamma_val = 1.0 + torch.tanh(self.film_gamma(m))
-        film_beta_val  = torch.tanh(self.film_beta(m))
+        film_gamma_val = 1.0 + torch.tanh(self.film_gamma(m)) * live_mask
+        film_beta_val  = torch.tanh(self.film_beta(m)) * live_mask
 
         # 4. Fast NCA Processing with FiLM Modulation
         pre_life_mask = self.get_alive_mask(prefix)
