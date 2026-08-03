@@ -272,8 +272,12 @@ class NCA_RAMod(nn.Module):
             Q = slow_perception(x[:, :4], x[:, 4:16])
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
-            new_a, new_b, new_d = discrete_update( a, b, d, self.alpha, beta,
-                                    self.omega, kappa, self.K, Ia, Ib, Id, dt=self.dt,
+            
+            beta_phys  = torch.abs(self.raw_beta)  + 1e-4
+            kappa_phys = torch.abs(self.raw_kappa) + 1e-4
+            
+            new_a, new_b, new_d = discrete_update( a, b, d, self.alpha, beta_phys,
+                                    self.omega, kappa_phys, self.K, Ia, Ib, Id, dt=self.dt,
                                     live_mask=live_mask)
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             a, b, d = new_a, new_b, new_d
