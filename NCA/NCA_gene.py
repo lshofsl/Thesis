@@ -150,20 +150,26 @@ def ring_attractor_phases(a, b):
     local_angle = torch.atan2(b, a)
     return local_amplitude, local_angle
 
-def discrete_update(a, b, d, alpha, beta, omega, kappa, K, I_a, I_b, I_d, dt): 
 
-    a_padded = torch.nn.functional.pad(a, [1,1,1,1], mode='circular')  #Mantain the circular shape in all the network 
+# We apply the live_mask on the discrete update to no have a growth of a,b,d on the background
+def discrete_update(a, b, d, alpha, beta, omega, kappa, K, I_a, I_b, I_d, dt, live_mask):
+    a_padded = torch.nn.functional.pad(a, [1,1,1,1], mode='circular')
     diff_a = torch.nn.functional.conv2d(a_padded, lap_kernel, padding=0)
     new_a = a + dt * (-alpha * a + omega * b + K * diff_a + I_a)
-    
+
     b_padded = torch.nn.functional.pad(b, [1,1,1,1], mode='circular')
     diff_b = torch.nn.functional.conv2d(b_padded, lap_kernel, padding=0)
     new_b = b + dt * (-alpha * b - omega * a + K * diff_b + I_b)
-    
+
     d_padded = torch.nn.functional.pad(d, [1,1,1,1], mode='circular')
     diff_d = torch.nn.functional.conv2d(d_padded, lap_kernel, padding=0)
     new_d = d + dt * (-beta * d + kappa * diff_d + I_d)
-    
+
+    # Mask updates to live cells only, prevents diffusion leaking into background
+    new_a = new_a * live_mask + a * (1 - live_mask)
+    new_b = new_b * live_mask + b * (1 - live_mask)
+    new_d = new_d * live_mask + d * (1 - live_mask)
+
     return new_a, new_b, new_d
 
 def consensus_update(a, b, dt, mode='local'):
@@ -262,23 +268,14 @@ class NCA_RAMod(nn.Module):
 
         # 2. Slow Ring Attractor PDE Updates (Every k steps)
         if step % k == 0:
-            Q = slow_perception(x[:, :4], x[:, 4:16]) 
+            live_mask = (x[:, 3:4] > 0.1).float()  # alpha threshold
+            Q = slow_perception(x[:, :4], x[:, 4:16])
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
-            
-            # Enforce Positivity on Physical Rates with an sqrt function
-            beta_val  = torch.abs(self.raw_beta)  + 1e-4
-            kappa_val = torch.abs(self.raw_kappa) + 1e-4
-
-           
-            new_a, new_b, new_d = discrete_update(
-                a, b, d, self.alpha, beta_val, self.omega, 
-                kappa_val, self.K, Ia, Ib, Id, dt=self.dt
-            )
-            
+            new_a, new_b, new_d = discrete_update( a, b, d, self.alpha, beta,
+                                    self.omega, kappa, self.K, Ia, Ib, Id, dt=self.dt,
+                                    live_mask=live_mask)
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
-
-            # Update RA states
             a, b, d = new_a, new_b, new_d
             
         # 3. Compute FiLM Modulation Signals from RA states
