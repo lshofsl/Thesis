@@ -309,7 +309,7 @@ class NCA_RAMod(nn.Module):
         delta = y * update_mask * pre_life_mask.to(y.dtype)
         
         new_public = (prefix + delta)
-        new_public = new_public *  * self.get_alive_mask(new_public)   #Post living mask 
+        new_public = new_public * self.get_alive_mask(new_public)   #Post living mask 
  
         # 5. Re-assemble final tensor state
         x_final = torch.cat([
