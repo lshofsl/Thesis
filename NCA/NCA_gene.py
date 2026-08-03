@@ -228,7 +228,7 @@ class NCA_RAMod(nn.Module):
 
         # Learnable PDE Parameters (Raw latent representations)
         self.alpha = nn.Parameter(torch.tensor(0.1)) # Decay rate of a, b
-        self.raw_beta = nn.Parameter(torch.tensor(0.5)) # Latent decay rate of d (softplus will be apply)
+        self.raw_beta = nn.Parameter(torch.tensor(0.4)) # Latent decay rate of d (softplus will be apply)
         self.omega = nn.Parameter(torch.tensor(0.0)) # Angular drift frequency
         self.K = nn.Parameter(torch.tensor(0.4)) # Latent Activator spatial coupling 
         self.raw_kappa = nn.Parameter(torch.tensor(0.3)) # Latent d-field diffusion strength
@@ -280,7 +280,11 @@ class NCA_RAMod(nn.Module):
                                     self.omega, kappa_phys, self.K, Ia, Ib, Id, dt=self.dt,
                                     live_mask=live_mask)
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
-            a, b, d = new_a, new_b, new_d
+            #live mask after the consesuse_update is make 
+            a = new_a * live_mask + a * (1 - live_mask)
+            b = new_b * live_mask + b * (1 - live_mask)
+            #d have already the mask in the discrete update
+            d = new_d
             
         # 3. Compute FiLM Modulation Signals from RA states
         ra_stack = torch.cat([a, b, d], dim=1)           # (B, 3, H, W)
