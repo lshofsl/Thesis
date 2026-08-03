@@ -311,8 +311,9 @@ class NCA_RAMod(nn.Module):
         update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) + update_rate).floor()
         delta = y * update_mask * pre_life_mask.to(y.dtype)
         
-        new_public = (prefix + delta) * self.get_alive_mask(prefix)
-
+        new_public = (prefix + delta)
+        new_public = new_public *  * self.get_alive_mask(new_public)   #Post living mask 
+ 
         # 5. Re-assemble final tensor state
         x_final = torch.cat([
             new_public, # 0:16
