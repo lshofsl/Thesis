@@ -120,6 +120,11 @@ class NCA(torch.nn.Module):
         self.w2 = torch.nn.Conv2d(hidden_n, chn, 1, bias=False)
         self.w2.weight.data.zero_()
 
+    def get_alive_mask(self,x):
+        alpha = x[:, 3:4, :, :] 
+        padded_alpha = torch.nn.functional.pad(alpha, pad=[1, 1, 1, 1], mode="circular")
+        return torch.nn.functional.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
+
 
     def forward(self, x, update_rate=0.5):
         pre_life_mask = self.get_alive_mask(x)
