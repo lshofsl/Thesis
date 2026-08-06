@@ -256,21 +256,20 @@ class NCA_RAMod(nn.Module):
         nn.init.normal_(self.film_beta.weight, std=0.01)
         nn.init.zeros_(self.film_beta.bias)
 
-    def get_alive_mask(self,x):
+    def get_alive_mask(self, x):
         alpha = x[:, 3:4, :, :] 
-        padded_alpha = torch.nn.functional.pad(alpha, pad=[1, 1, 1, 1], mode="circular")
-        return torch.nn.functional.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
+        padded_alpha = F.pad(alpha, pad=[1, 1, 1, 1], mode="circular")
+        return F.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
 
     def forward(self, x, update_rate=0.5, step=0, k=4):
         # 1. Split state channels
-        prefix = x[:, :16].clone()    # RGBA + Hidden (Public)
-        a = x[:, 16:17].clone()       # Oscillator a
-        b = x[:, 17:18].clone()       # Oscillator b
-        d = x[:, 18:19].clone()       # Diffusion/memory field d
-        m_g = x[:, 19:20].clone()     # Growth gate
-        m_r = x[:, 20:21].clone()     # Regeneration gate
-        m_s = x[:, 21:22].clone()     # Stability gate
-        live_mask = (x[:, 3:4] > 0.1).float()  # alpha threshold
+        prefix = x[:, :16]    # RGBA + Hidden (Public)
+        a = x[:, 16:17]       # Oscillator a
+        b = x[:, 17:18]       # Oscillator b
+        d = x[:, 18:19]       # Diffusion field d
+        
+        # Consistent neighborhood alive mask
+        live_mask = self.get_alive_mask(x).to(x.dtype)
         
         # 2. Slow Ring Attractor PDE Updates (Every k steps)
         if step % k == 0:
@@ -282,63 +281,51 @@ class NCA_RAMod(nn.Module):
             Ib = Ib * live_mask
             Id = Id * live_mask
             
-            beta_phys  = torch.nn.functional.softplus(self.raw_beta)  + 1e-4
-            kappa_phys = torch.nn.functional.softplus(self.raw_kappa) + 1e-4
-            omega_phys = torch.nn.functional.softplus(self.raw_omega) + 1e-4
+            beta_phys  = F.softplus(self.raw_beta)  + 1e-4
+            kappa_phys = F.softplus(self.raw_kappa) + 1e-4
+            omega_phys = F.softplus(self.raw_omega) + 1e-4
             
-            new_a, new_b, new_d = discrete_update( a, b, d, self.alpha, beta_phys,
-                                    omega_phys, kappa_phys, self.K, Ia, Ib, Id, dt=self.dt,
-                                    live_mask=live_mask)
+            new_a, new_b, new_d = discrete_update(
+                a, b, d, self.alpha, beta_phys, omega_phys, kappa_phys, 
+                self.K, Ia, Ib, Id, dt=self.dt, live_mask=live_mask
+            )
             new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
-            #live mask after the consesuse_update is make 
-            a = new_a * live_mask + a * (1 - live_mask)
-            b = new_b * live_mask + b * (1 - live_mask)
-            #d have already the mask in the discrete update
-            d = new_d
+            
+            a = new_a * live_mask + a * (1.0 - live_mask)
+            b = new_b * live_mask + b * (1.0 - live_mask)
+            d = new_d * live_mask + d * (1.0 - live_mask)
             
         # 3. Compute FiLM Modulation Signals from RA states
-        ra_stack = torch.cat([a, b, d], dim=1)           # (B, 3, H, W)
+        ra_stack = torch.cat([a, b, d], dim=1)
         m = torch.sigmoid(self.mod_output_net(ra_stack)) 
         
-        m_g = m[:, 0:1]  # growth competence
+        m_g = m[:, 0:1]  # growth gate
         m_r = m[:, 1:2]  # regeneration gate
         m_s = m[:, 2:3]  # maintenance gate
 
-        # Compute FiLM parameters once
-        film_gamma_val = 1.0 + torch.tanh(self.film_gamma(m)) * live_mask
-        film_beta_val  = torch.tanh(self.film_beta(m)) * live_mask
+        # Standard unconstrained FiLM scaling
+        film_gamma_val = 1.0 + self.film_gamma(m)
+        film_beta_val  = self.film_beta(m)
 
         # 4. Fast NCA Processing with FiLM Modulation
-        pre_life_mask = self.get_alive_mask(prefix)
+        pre_life_mask = self.get_alive_mask(prefix).to(x.dtype)
         fast_input = reduced_perception(prefix, 0)
         
-        # Dense Layer 1
-        z = self.w1(fast_input)    
-        
-        # Apply FiLM Modulation to hidden features z
+        z = self.w1(fast_input)
         z_prime = film_gamma_val * z + film_beta_val        
-        
-        # Dense Layer 2
         y = self.w2(F.relu(z_prime))
         
-        # Stochastic Update & Alive Masking
+        # Correct stochastic update mask
         b_sz, c_sz, h, w = y.shape
-        update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) + update_rate).floor()
-        delta = y * update_mask * pre_life_mask.to(y.dtype)
+        update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) < update_rate).to(x.dtype)
+        delta = y * update_mask * pre_life_mask
         
-        new_public = (prefix + delta)
-        new_public = new_public * self.get_alive_mask(new_public)   #Post living mask 
- 
-        # 5. Re-assemble final tensor state
-        x_final = torch.cat([
-            new_public, # 0:16
-            a,          # 16
-            b,          # 17
-            d,          # 18
-            m_g,        # 19
-            m_r,        # 20
-            m_s,        # 21
-        ], dim=1)
+        new_public = prefix + delta
+        post_life_mask = self.get_alive_mask(new_public).to(x.dtype)
+        new_public = new_public * post_life_mask
+
+        # 5. Re-assemble state tensor
+        x_final = torch.cat([new_public, a, b, d, m_g, m_r, m_s], dim=1)
 
         amplitude, phase = ring_attractor_phases(a, b)
         return x_final, amplitude, phase, film_gamma_val, film_beta_val
@@ -496,7 +483,7 @@ class NCA_onlymod(torch.nn.Module):
         z_prime = gamma * z + beta    
         y = self.w2(torch.relu(z_prime))
 
-        update_mask = (torch.rand(y.shape[0], 1, y.shape[2], y.shape[3], device=x.device) + update_rate).floor()
+        update_mask = (torch.rand(b, 1, h, w, device=x.device) + update_rate).floor()
 
         
         delta = y * update_mask * pre_life_mask
