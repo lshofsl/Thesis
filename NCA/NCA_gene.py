@@ -116,27 +116,35 @@ class NCA(torch.nn.Module):
     def __init__(self, chn=16, hidden_n=64):
         super().__init__()
         self.chn = chn
-        self.w1 = torch.nn.Conv2d(chn + 3 * (chn), hidden_n, 1)
+        # Perception dimensionality: chn (identity) + 3 * chn (sobel x, sobel y, laplacian)
+        self.w1 = torch.nn.Conv2d(chn + 3 * chn, hidden_n, 1)
         self.w2 = torch.nn.Conv2d(hidden_n, chn, 1, bias=False)
-        self.w2.weight.data.zero_()
+        torch.nn.init.zeros_(self.w2.weight)
 
-    def get_alive_mask(self,x):
+    def get_alive_mask(self, x):
         alpha = x[:, 3:4, :, :] 
         padded_alpha = torch.nn.functional.pad(alpha, pad=[1, 1, 1, 1], mode="circular")
         return torch.nn.functional.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
 
-
     def forward(self, x, update_rate=0.5):
-        pre_life_mask = self.get_alive_mask(x)
+        # Pre-life mask 
+        pre_life_mask = self.get_alive_mask(x).to(x.dtype)
+        
+        # Perception & MLP forward pass
         y = reduced_perception(x, 0)
         y = self.w2(torch.relu(self.w1(y)))
+        
+        # Stochastic update mask
         b, c, h, w = y.shape
-        update_mask = (torch.rand(b, 1, h, w, device=x.device) + update_rate).floor()
+        update_mask = (torch.rand(b, 1, h, w, device=x.device) < update_rate).to(x.dtype)
+        
+        # State step update gated by pre-life mask
         x = x + y * update_mask * pre_life_mask
         
-        #We apply a second life_mask to clean the background active cells 
-        post_life_mask = self.get_alive_mask(x)
+        # Clean background using post-life mask cast to float
+        post_life_mask = self.get_alive_mask(x).to(x.dtype)
         x = x * post_life_mask
+        
         return x
 
 
