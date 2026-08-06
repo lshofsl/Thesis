@@ -483,7 +483,9 @@ class NCA_onlymod(torch.nn.Module):
         z_prime = gamma * z + beta    
         y = self.w2(torch.relu(z_prime))
 
-        update_mask = (torch.rand(b, 1, h, w, device=x.device) + update_rate).floor()
+        # Update Mask considering an lower bound for the random values 
+        b_sz, c_sz, h, w = y.shape
+        update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) < update_rate).to(x.dtype)
 
         
         delta = y * update_mask * pre_life_mask
