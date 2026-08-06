@@ -474,6 +474,11 @@ class NCA_onlymod(torch.nn.Module):
         if m_mode == 'feedforward':
             self.m_feedforward = torch.nn.Conv2d(public, m_dim, 1)
 
+    def get_alive_mask(self,x):
+        alpha = x[:, 3:4, :, :] 
+        padded_alpha = torch.nn.functional.pad(alpha, pad=[1, 1, 1, 1], mode="circular")
+        return torch.nn.functional.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
+
     def forward(self, x, update_rate=0.5):
         prefix = x[:, :self.public].clone()
 
@@ -485,17 +490,19 @@ class NCA_onlymod(torch.nn.Module):
         pre_life_mask = self.get_alive_mask(x)
         fast_input = reduced_perception(x[:, :self.public], 0)
         z = self.w1(fast_input)    # Firs MLP channel for the FiLM modulation
-        gamma = 1.0 + torch.tanh(self.film_gamma(m))
-        beta  = torch.tanh(self.film_beta(m))
-        z_prime = gamma * z + beta        
+        # Unbounded FiLM modulation
+        gamma = 1.0 + self.film_gamma(m)
+        beta  = self.film_beta(m)
+        z_prime = gamma * z + beta    
         y = self.w2(torch.relu(z_prime))
 
         update_mask = (torch.rand(y.shape[0], 1, y.shape[2], y.shape[3], device=x.device) + update_rate).floor()
 
-        post_life_mask = self.get_alive_mask(x)
         
         delta = y * update_mask * pre_life_mask
-        new_public = (prefix + delta) * post_life_mask
+        new_public = (prefix + delta) 
+        post_life_mask = self.get_alive_mask(new_public).to(x.dtype)
+        new_public = new_public * post_life_mask
 
         x_final = torch.cat([new_public, m], dim=1)
         return x_final
