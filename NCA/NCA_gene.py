@@ -6,8 +6,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 ident = torch.tensor([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]], dtype=torch.float32, device="cuda:0")
-sobel_y = torch.tensor([[1.0, 2.0, 1.0], [1.0, 1.0, 1.0], [-1.0, -2.0, -1.0]], dtype=torch.float32, device="cuda:0")
 sobel_x = torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]], dtype=torch.float32, device="cuda:0")
+sonel_y = sobel_x.T
 lap = torch.tensor([[1.0, 2.0, 1.0], [2.0, -12, 2.0], [1.0, 2.0, 1.0]], dtype=torch.float32, device="cuda:0")
 gaus = torch.tensor([[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]], dtype=torch.float32, device="cuda:0")
 
@@ -165,20 +165,33 @@ def ring_attractor_phases(a, b):
 
 
 # We apply the live_mask on the discrete update to no have a growth of a,b,d on the background
-def discrete_update(a, b, d, alpha, beta, omega, kappa, K, I_a, I_b, I_d, dt, live_mask):
-    a_padded = torch.nn.functional.pad(a, [1,1,1,1], mode='circular')
+def discrete_update(a, b, d, mu, omega, beta_r, beta_i, beta_d, kappa, K,
+                     I_a, I_b, I_d, dt, live_mask):
+    # CGLE equations are used to as our Ring-Attracor imposition on the slow NCA, 
+    # We look that by injecting this dynamics on the NCA manifold we can obtain a bette control
+
+    a_padded = torch.nn.functional.pad(a, [1, 1, 1, 1], mode='circular')
     diff_a = torch.nn.functional.conv2d(a_padded, lap_kernel, padding=0)
-    new_a = a + dt * (-alpha * a + omega * b + K * diff_a + I_a)
 
-    b_padded = torch.nn.functional.pad(b, [1,1,1,1], mode='circular')
+    b_padded = torch.nn.functional.pad(b, [1, 1, 1, 1], mode='circular')
     diff_b = torch.nn.functional.conv2d(b_padded, lap_kernel, padding=0)
-    new_b = b + dt * (-alpha * b - omega * a + K * diff_b + I_b)
 
-    d_padded = torch.nn.functional.pad(d, [1,1,1,1], mode='circular')
+    r_sq = a**2 + b**2  # |z|^2, computed once, shared by both cubic terms
+
+    cubic_a = -r_sq * (beta_r * a - beta_i * b)
+    cubic_b = -r_sq * (beta_r * b + beta_i * a)
+
+    new_a = a + dt * (mu * a - omega * b + cubic_a + K * diff_a + I_a)
+    new_b = b + dt * (mu * b + omega * a + cubic_b + K * diff_b + I_b)
+
+    # In addition of the coupled 2D system, we add an uncoupled diffusion equation to 
+    # monitorate the dynamics 
+    d_padded = torch.nn.functional.pad(d, [1, 1, 1, 1], mode='circular')
     diff_d = torch.nn.functional.conv2d(d_padded, lap_kernel, padding=0)
-    new_d = d + dt * (-beta * d + kappa * diff_d + I_d)
+    new_d = d + dt * (-beta_d * d + kappa * diff_d + I_d)
 
-    # Mask updates to live cells only, prevents diffusion leaking into background
+    # Mask updates to live cells only to preserves organism boundary and is
+    # what makes post-damage phase healing through K*diff_z observable
     new_a = new_a * live_mask + a * (1 - live_mask)
     new_b = new_b * live_mask + b * (1 - live_mask)
     new_d = new_d * live_mask + d * (1 - live_mask)
@@ -205,21 +218,30 @@ def consensus_update(a, b, dt, mode='local'):
     b = b + dt * (b_avg_norm - b)
     return a, b
 
+
 def slow_perception(rgba, hidden):
     alpha = rgba[:, 3:4, :, :]
-    h_layers = hidden[:, 0:2, :, :]
+    h_layers = hidden[:, 0:2, :, :]  # Ring attractor state channels
 
-    # Morphological erosion (1 inside, 0 at boundary/outside)
-    eroded = -torch.nn.functional.max_pool2d(-alpha, kernel_size=3, stride=1, padding=1)
-    interior = eroded  # active in interior, silent at boundary
-
-    # Laplacian — negated so it's positive in interior, negative at boundary
+    # 1. Padding
     alpha_padded = torch.nn.functional.pad(alpha, [1,1,1,1], mode='circular')
-    lap_alpha = torch.nn.functional.conv2d(alpha_padded, lap_kernel, padding=0)
-    lap_inward = -lap_alpha  # flipped sign
+    
+    # 2. Convolutions with external filters
+    lap_alpha = F.conv2d(alpha_padded, lap)
+    lap_inward = -lap_alpha
 
-    # Q: [alpha, interior, lap_inward, h1, h2]
-    Q = torch.cat([alpha, interior, lap_inward, h_layers], dim=1)
+    # 3. Gradients in x and y to have orientation 
+    smooth_alpha = F.conv2d(alpha_padded, gaus)
+    grad_x = F.conv2d(alpha_padded, sobel_x)
+    grad_y = F.conv2d(alpha_padded, sobel_y)
+
+    # 3. Morphological Boundary
+    eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
+    dilated = F.max_pool2d(alpha_padded, kernel_size=3, stride=1, padding=0)
+    morph_edge = dilated - eroded
+
+
+    Q = torch.cat([alpha, lap_inward, smooth_alpha, eroded, morph_edge, grad_x, grad_y, h_layers], dim=1)
     return Q
 
 
@@ -240,15 +262,17 @@ class NCA_RAMod(nn.Module):
         self.w2.weight.data.zero_()
 
         # Learnable PDE Parameters (Raw latent representations)
-        self.alpha = nn.Parameter(torch.tensor(0.1)) # Decay rate of a, b
-        self.raw_beta = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
-        self.raw_omega = nn.Parameter(torch.tensor(-0.5)) # Angular drift frequency
+        self.mu = nn.Parameter(torch.tensor(0.1)) # Decay rate of a, b
+        self.omega = nn.Parameter(torch.tensor(0.4)) # Angular drift frequency
+        self.beta_r = nn.Parameter(torch.tensor(0.3)) # Cubic amplitude saturation strength
+        self.beta_i = nn.Parameter(torch.tensor(0.1))  #Shear / detuning
         self.K = nn.Parameter(torch.tensor(0.25)) # Latent Activator spatial coupling 
+        self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
         self.raw_kappa = nn.Parameter(torch.tensor(-1.5)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
-        self.slow_input_net = nn.Conv2d(5, 3, kernel_size=1)
+        self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
         
         # Modulation channels
         self.mod_output_net = nn.Conv2d(3, 3, kernel_size=1)
@@ -289,15 +313,16 @@ class NCA_RAMod(nn.Module):
             Ib = Ib * live_mask
             Id = Id * live_mask
             
-            beta_phys  = F.softplus(self.raw_beta)  + 1e-4
+            beta_phys  = F.softplus(self.raw_beta_d)  + 1e-4
             kappa_phys = F.softplus(self.raw_kappa) + 1e-4
-            omega_phys = F.softplus(self.raw_omega) + 1e-4
+            mu_phys = F.softplus(self.mu) + 1e-4
+            betar_phys = F.softplus(self.beta_r) + 1e-4
+            K_phys = F.softplus(self.K) + 1e-4
             
             new_a, new_b, new_d = discrete_update(
-                a, b, d, self.alpha, beta_phys, omega_phys, kappa_phys, 
-                self.K, Ia, Ib, Id, dt=self.dt, live_mask=live_mask
-            )
-            new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
+                a, b, d, mu_phys, self.omega, betar_phys, self.beta_i, beta_phys, kappa_phys, 
+                K_phys, Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
+            #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
             a = new_a * live_mask + a * (1.0 - live_mask)
             b = new_b * live_mask + b * (1.0 - live_mask)
