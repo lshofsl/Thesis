@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 ident = torch.tensor([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]], dtype=torch.float32, device="cuda:0")
 sobel_x = torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]], dtype=torch.float32, device="cuda:0")
-sonel_y = sobel_x.T
+sobel_y = sobel_x.T
 lap = torch.tensor([[1.0, 2.0, 1.0], [2.0, -12, 2.0], [1.0, 2.0, 1.0]], dtype=torch.float32, device="cuda:0")
 gaus = torch.tensor([[1.0, 2.0, 1.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]], dtype=torch.float32, device="cuda:0")
 
@@ -155,20 +155,20 @@ class NCA(torch.nn.Module):
 #Laplacian Kernel
 DEVICE = "cuda:0"
 
-lap = torch.tensor([[0., 1., 0.],
+lap_slow = torch.tensor([[0., 1., 0.],
                      [1., -4., 1.],
                      [0., 1., 0.]], dtype=torch.float32, device=DEVICE).view(1, 1, 3, 3)
 
-gaus = torch.tensor([[1., 2., 1.],
+gaus_slow = torch.tensor([[1., 2., 1.],
                       [2., 4., 2.],
                       [1., 2., 1.]], dtype=torch.float32, device=DEVICE) / 16.0
-gaus = gaus.view(1, 1, 3, 3)
+gaus_slow = gaus.view(1, 1, 3, 3)
 
-sobel_x = torch.tensor([[-1., 0., 1.],
+sobel_x_slow = torch.tensor([[-1., 0., 1.],
                          [-2., 0., 2.],
                          [-1., 0., 1.]], dtype=torch.float32, device=DEVICE).view(1, 1, 3, 3)
 
-sobel_y = torch.tensor([[-1., -2., -1.],
+sobel_y_slow = torch.tensor([[-1., -2., -1.],
                          [ 0.,  0.,  0.],
                          [ 1.,  2.,  1.]], dtype=torch.float32, device=DEVICE).view(1, 1, 3, 3)
 
@@ -242,13 +242,13 @@ def slow_perception(rgba, hidden):
     alpha_padded = torch.nn.functional.pad(alpha, [1, 1, 1, 1], mode='circular')
 
     # 2. Convolutions with external filters
-    lap_alpha = F.conv2d(alpha_padded, lap)
+    lap_alpha = F.conv2d(alpha_padded, lap_slow)
     lap_inward = -lap_alpha
 
     # 3. Gradients in x and y to have orientation
-    smooth_alpha = F.conv2d(alpha_padded, gaus)
-    grad_x = F.conv2d(alpha_padded, sobel_x)
-    grad_y = F.conv2d(alpha_padded, sobel_y)
+    smooth_alpha = F.conv2d(alpha_padded, gaus_slow)
+    grad_x = F.conv2d(alpha_padded, sobel_x_slow)
+    grad_y = F.conv2d(alpha_padded, sobel_y_slow)
 
     # 3. Morphological Boundary
     eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
