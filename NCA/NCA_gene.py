@@ -276,7 +276,7 @@ class NCA_RAMod(nn.Module):
         self.w2.weight.data.zero_()
 
         # Learnable PDE Parameters (Raw latent representations)
-        self.mu = nn.Parameter(torch.tensor(-1.25)) # Decay rate of a, b
+        self.mu = nn.Parameter(torch.tensor(0.1)) # Decay rate of a, b
         self.omega = nn.Parameter(torch.tensor(0.4)) # Angular drift frequency
         self.beta_r = nn.Parameter(torch.tensor(-1.0)) # Cubic amplitude saturation strength
         self.beta_i = nn.Parameter(torch.tensor(-1.25))  #Shear / detuning
