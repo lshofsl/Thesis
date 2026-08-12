@@ -153,10 +153,25 @@ class NCA(torch.nn.Module):
 #In each cell of the NCA we are going to add the RA states this will help us to understand the dynamics of training 
 
 #Laplacian Kernel
-lap_kernel = torch.tensor([[1.0, 2.0, 1.0], 
-                           [2.0, -12., 2.0], 
-                           [1.0, 2.0, 1.0]], dtype=torch.float32, device="cuda:0")
-lap_kernel = (lap_kernel / 12.0).view(1, 1, 3, 3) # Normalization 
+DEVICE = "cuda:0"
+
+lap = torch.tensor([[0., 1., 0.],
+                     [1., -4., 1.],
+                     [0., 1., 0.]], dtype=torch.float32, device=DEVICE).view(1, 1, 3, 3)
+
+gaus = torch.tensor([[1., 2., 1.],
+                      [2., 4., 2.],
+                      [1., 2., 1.]], dtype=torch.float32, device=DEVICE) / 16.0
+gaus = gaus.view(1, 1, 3, 3)
+
+sobel_x = torch.tensor([[-1., 0., 1.],
+                         [-2., 0., 2.],
+                         [-1., 0., 1.]], dtype=torch.float32, device=DEVICE).view(1, 1, 3, 3)
+
+sobel_y = torch.tensor([[-1., -2., -1.],
+                         [ 0.,  0.,  0.],
+                         [ 1.,  2.,  1.]], dtype=torch.float32, device=DEVICE).view(1, 1, 3, 3)
+
 
 def ring_attractor_phases(a, b):
     local_amplitude = torch.sqrt(a**2 + b**2 + 1e-6)
@@ -221,16 +236,16 @@ def consensus_update(a, b, dt, mode='local'):
 
 def slow_perception(rgba, hidden):
     alpha = rgba[:, 3:4, :, :]
-    h_layers = hidden[:, 0:2, :, :]  # Ring attractor state channels
+    h_layers = hidden[:, 0:2, :, :]  # arbitrary public hidden channels used as slow-PDE input
 
     # 1. Padding
-    alpha_padded = torch.nn.functional.pad(alpha, [1,1,1,1], mode='circular')
-    
+    alpha_padded = torch.nn.functional.pad(alpha, [1, 1, 1, 1], mode='circular')
+
     # 2. Convolutions with external filters
     lap_alpha = F.conv2d(alpha_padded, lap)
     lap_inward = -lap_alpha
 
-    # 3. Gradients in x and y to have orientation 
+    # 3. Gradients in x and y to have orientation
     smooth_alpha = F.conv2d(alpha_padded, gaus)
     grad_x = F.conv2d(alpha_padded, sobel_x)
     grad_y = F.conv2d(alpha_padded, sobel_y)
@@ -239,7 +254,6 @@ def slow_perception(rgba, hidden):
     eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
     dilated = F.max_pool2d(alpha_padded, kernel_size=3, stride=1, padding=0)
     morph_edge = dilated - eroded
-
 
     Q = torch.cat([alpha, lap_inward, smooth_alpha, eroded, morph_edge, grad_x, grad_y, h_layers], dim=1)
     return Q
