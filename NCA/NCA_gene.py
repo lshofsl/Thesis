@@ -186,10 +186,10 @@ def discrete_update(a, b, d, mu, omega, beta_r, beta_i, beta_d, kappa, K,
     # We look that by injecting this dynamics on the NCA manifold we can obtain a bette control
 
     a_padded = torch.nn.functional.pad(a, [1, 1, 1, 1], mode='circular')
-    diff_a = torch.nn.functional.conv2d(a_padded, lap_kernel, padding=0)
+    diff_a = torch.nn.functional.conv2d(a_padded, lap_slow, padding=0)
 
     b_padded = torch.nn.functional.pad(b, [1, 1, 1, 1], mode='circular')
-    diff_b = torch.nn.functional.conv2d(b_padded, lap_kernel, padding=0)
+    diff_b = torch.nn.functional.conv2d(b_padded, lap_slow, padding=0)
 
     r_sq = a**2 + b**2  # |z|^2, computed once, shared by both cubic terms
 
@@ -202,7 +202,7 @@ def discrete_update(a, b, d, mu, omega, beta_r, beta_i, beta_d, kappa, K,
     # In addition of the coupled 2D system, we add an uncoupled diffusion equation to 
     # monitorate the dynamics 
     d_padded = torch.nn.functional.pad(d, [1, 1, 1, 1], mode='circular')
-    diff_d = torch.nn.functional.conv2d(d_padded, lap_kernel, padding=0)
+    diff_d = torch.nn.functional.conv2d(d_padded, lap_slow, padding=0)
     new_d = d + dt * (-beta_d * d + kappa * diff_d + I_d)
 
     # Mask updates to live cells only to preserves organism boundary and is
