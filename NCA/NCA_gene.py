@@ -278,7 +278,7 @@ class NCA_RAMod(nn.Module):
         # Learnable PDE Parameters (Raw latent representations)
         self.mu = nn.Parameter(torch.tensor(0.26)) # Decay rate of a, b
         self.omega = nn.Parameter(torch.tensor(0.3)) # Angular drift frequency
-        self.beta_r = nn.Parameter(torch.tensor(0.26)) # Cubic amplitude saturation strength
+        self.beta_r = nn.Parameter(torch.tensor(0.16)) # Cubic amplitude saturation strength
         self.beta_i = nn.Parameter(torch.tensor(0.0))  #Shear / detuning
         self.K = nn.Parameter(torch.tensor(0.6)) # Latent Activator spatial coupling 
         self.raw_beta_d = nn.Parameter(torch.tensor(-2.5)) # Latent decay rate of d (softplus will be apply)
@@ -345,7 +345,6 @@ class NCA_RAMod(nn.Module):
             d = new_d * live_mask + d * (1.0 - live_mask)
 
         # Computation of the inputs to the modulation channels 
-        eps = 1e-4
         r_sq = a**2 + b**2
         a_pad = F.pad(a, [1,1,1,1], mode='circular')
         b_pad = F.pad(b, [1,1,1,1], mode='circular')
@@ -358,15 +357,13 @@ class NCA_RAMod(nn.Module):
         gx = a*bx - b*ax
         gy = a*by - b*ay
         
-        disorder = (gx**2 + gy**2) / (r_sq**2 + eps)
-        
-        # 3. Compute FiLM Modulation Signals from RA states
-        m_amp = m[:, 0:1]  # amplitude gate
-        m_disorder = m[:, 1:2]  # phase disorder gate
-        m_d = m[:, 2:3]  # competence gate
-        
+        r_sq_safe = torch.clamp(r_sq, min=0.01)
+        disorder = (gx**2 + gy**2) / (r_sq_safe**2)
+        disorder_compressed = torch.log1p(disorder)
+
+        # Compute FiLM Modulation Signals from RA states
         m_amp      = torch.sigmoid(self.amp_to_gate(r_sq))
-        m_disorder = torch.sigmoid(self.grad_to_gate(disorder))
+        m_disorder = torch.sigmoid(self.grad_to_gate(disorder_compressed))
         m_d        = torch.sigmoid(self.d_to_gate(d))
 
         # Standard unconstrained FiLM scaling
