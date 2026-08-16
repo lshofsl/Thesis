@@ -280,9 +280,9 @@ class NCA_RAMod(nn.Module):
         self.omega = nn.Parameter(torch.tensor(0.3)) # Angular drift frequency
         self.beta_r = nn.Parameter(torch.tensor(0.16)) # Cubic amplitude saturation strength
         self.beta_i = nn.Parameter(torch.tensor(0.0))  #Shear / detuning
-        self.K = nn.Parameter(torch.tensor(2.4)) # Latent Activator spatial coupling 
-        self.raw_beta_d = nn.Parameter(torch.tensor(1.3)) # Latent decay rate of d (softplus will be apply)
-        self.raw_kappa = nn.Parameter(torch.tensor(2.4)) # Latent d-field diffusion strength
+        self.K = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling 
+        self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
+        self.raw_kappa = nn.Parameter(torch.tensor(1.2)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
