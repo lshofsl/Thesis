@@ -290,7 +290,7 @@ class NCA_RAMod(nn.Module):
         
         # Modulation channels: amplitude, phase disorder and competence 
         self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
-        self.grad_to_gate = nn.Conv2d(1, 1, kernel_size=1)  
+        self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
         self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1) 
         
 
@@ -358,16 +358,21 @@ class NCA_RAMod(nn.Module):
         gy = a*by - b*ay
         
         r_sq_safe = torch.clamp(r_sq, min=0.01)
-        disorder = (gx**2 + gy**2) / (r_sq_safe**2)
-        disorder_compressed = torch.log1p(disorder)
+
+        r_sq_pad = F.pad(r_sq_safe, [1,1,1,1], mode='circular')
+        d_pad    = F.pad(d,         [1,1,1,1], mode='circular')
+        r_sq_lap = F.conv2d(r_sq_pad, lap_slow)
+        d_lap    = F.conv2d(d_pad,    lap_slow)
+
+        reg_input = torch.cat([r_sq_lap, d_lap, r_sq_safe, d], dim=1)
 
         # Compute FiLM Modulation Signals from RA states
         m_amp      = torch.sigmoid(self.amp_to_gate(r_sq))
-        m_disorder = torch.sigmoid(self.grad_to_gate(disorder_compressed))
+        m_regeneration = torch.sigmoid(self.reg_to_gate(reg_input))
         m_d        = torch.sigmoid(self.d_to_gate(d))
 
         # Standard unconstrained FiLM scaling
-        m = torch.cat([m_amp, m_disorder, m_d], dim=1)
+        m = torch.cat([m_amp, m_regeneration , m_d], dim=1)
         film_gamma_val = 1.0 + self.film_gamma(m)
         film_beta_val  = self.film_beta(m)
 
@@ -389,7 +394,7 @@ class NCA_RAMod(nn.Module):
         new_public = new_public * post_life_mask
 
         # 5. Re-assemble state tensor
-        x_final = torch.cat([new_public, a, b, d, m_amp, m_disorder, m_d], dim=1)
+        x_final = torch.cat([new_public, a, b, d, m_amp, m_regeneration, m_d], dim=1)
 
         amplitude, phase = ring_attractor_phases(a, b)
         return x_final, amplitude, phase, film_gamma_val, film_beta_val
