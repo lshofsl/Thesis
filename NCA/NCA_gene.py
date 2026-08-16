@@ -334,9 +334,9 @@ class NCA_RAMod(nn.Module):
                 K_phys, Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
-        a = new_a * live_mask 
-        b = new_b * live_mask 
-        d = new_d * live_mask 
+            a = new_a * live_mask 
+            b = new_b * live_mask 
+            d = new_d * live_mask 
 
         # Computation of the inputs to the modulation channels 
         r_sq = a**2 + b**2
