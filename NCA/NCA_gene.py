@@ -334,9 +334,9 @@ class NCA_RAMod(nn.Module):
                 K_phys, Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
-            a = new_a * live_mask 
-            b = new_b * live_mask 
-            d = new_d * live_mask 
+        a = new_a * live_mask 
+        b = new_b * live_mask 
+        d = new_d * live_mask 
 
         # Computation of the inputs to the modulation channels 
         r_sq = a**2 + b**2
@@ -347,10 +347,7 @@ class NCA_RAMod(nn.Module):
         ay = F.conv2d(a_pad, sobel_y_slow)
         bx = F.conv2d(b_pad, sobel_x_slow)
         by = F.conv2d(b_pad, sobel_y_slow)
-        
-        gx = a*bx - b*ax
-        gy = a*by - b*ay
-        
+
         r_sq_safe = torch.clamp(r_sq, min=0.01)
 
         r_sq_pad = F.pad(r_sq_safe, [1,1,1,1], mode='circular')
