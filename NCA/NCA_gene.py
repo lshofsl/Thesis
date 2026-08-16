@@ -182,16 +182,16 @@ def ring_attractor_phases(a, b):
 # We apply the live_mask on the discrete update to no have a growth of a,b,d on the background
 def discrete_update(a, b, d, mu, omega, beta_r, beta_i, beta_d, kappa, K,
                      I_a, I_b, I_d, dt, live_mask):
-    # CGLE equations are used to as our Ring-Attracor imposition on the slow NCA, 
-    # We look that by injecting this dynamics on the NCA manifold we can obtain a bette control
 
+# During the slow NCA we inject on the hidden states of the manifold the dynamics form the 
+#CGLE equations in discrete steps, this will guide the dynamics on the manifold to a ring-attractor structure 
     a_padded = torch.nn.functional.pad(a, [1, 1, 1, 1], mode='circular')
     diff_a = torch.nn.functional.conv2d(a_padded, lap_slow, padding=0)
 
     b_padded = torch.nn.functional.pad(b, [1, 1, 1, 1], mode='circular')
     diff_b = torch.nn.functional.conv2d(b_padded, lap_slow, padding=0)
 
-    r_sq = a**2 + b**2  # |z|^2, computed once, shared by both cubic terms
+    r_sq = a**2 + b**2  
 
     cubic_a = -r_sq * (beta_r * a - beta_i * b)
     cubic_b = -r_sq * (beta_r * b + beta_i * a)
@@ -204,12 +204,6 @@ def discrete_update(a, b, d, mu, omega, beta_r, beta_i, beta_d, kappa, K,
     d_padded = torch.nn.functional.pad(d, [1, 1, 1, 1], mode='circular')
     diff_d = torch.nn.functional.conv2d(d_padded, lap_slow, padding=0)
     new_d = d + dt * (-beta_d * d + kappa * diff_d + I_d)
-
-    # Mask updates to live cells only to preserves organism boundary and is
-    # what makes post-damage phase healing through K*diff_z observable
-    new_a = new_a * live_mask + a * (1 - live_mask)
-    new_b = new_b * live_mask + b * (1 - live_mask)
-    new_d = new_d * live_mask + d * (1 - live_mask)
 
     return new_a, new_b, new_d
 
@@ -250,7 +244,7 @@ def slow_perception(rgba, hidden):
     grad_x = F.conv2d(alpha_padded, sobel_x_slow)
     grad_y = F.conv2d(alpha_padded, sobel_y_slow)
 
-    # 3. Morphological Boundary
+    # 4. Morphological Boundary
     eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
     dilated = F.max_pool2d(alpha_padded, kernel_size=3, stride=1, padding=0)
     morph_edge = dilated - eroded
@@ -288,7 +282,7 @@ class NCA_RAMod(nn.Module):
         # Inputs for slow RA perception
         self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
         
-        # Modulation channels: amplitude, phase disorder and competence 
+        # Modulation channels: amplitude, regeneration and competence 
         self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
         self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
         self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1) 
@@ -340,9 +334,9 @@ class NCA_RAMod(nn.Module):
                 K_phys, Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
-            a = new_a * live_mask + a * (1.0 - live_mask)
-            b = new_b * live_mask + b * (1.0 - live_mask)
-            d = new_d * live_mask + d * (1.0 - live_mask)
+            a = new_a * live_mask 
+            b = new_b * live_mask 
+            d = new_d * live_mask 
 
         # Computation of the inputs to the modulation channels 
         r_sq = a**2 + b**2
@@ -366,7 +360,7 @@ class NCA_RAMod(nn.Module):
 
         reg_input = torch.cat([r_sq_lap, d_lap, r_sq_safe, d], dim=1)
 
-        # Compute FiLM Modulation Signals from RA states
+        # 3. Compute FiLM Modulation Signals from RA states
         m_amp      = torch.sigmoid(self.amp_to_gate(r_sq))
         m_regeneration = torch.sigmoid(self.reg_to_gate(reg_input))
         m_d        = torch.sigmoid(self.d_to_gate(d))
