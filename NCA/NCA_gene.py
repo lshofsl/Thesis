@@ -554,7 +554,7 @@ class NCA_onlymod(torch.nn.Module):
         new_public = new_public * post_life_mask
 
         x_final = torch.cat([new_public, m], dim=1)
-        return x_final
+        return x_final, gamma, beta
 
 
 
