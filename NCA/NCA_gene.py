@@ -235,15 +235,15 @@ def slow_perception(rgba, hidden):
 
     # 3. Gradients in x and y to have orientation
     smooth_alpha = F.conv2d(alpha_padded, gaus_slow)
-    grad_x = F.conv2d(alpha_padded, sobel_x_slow)
-    grad_y = F.conv2d(alpha_padded, sobel_y_slow)
+    #grad_x = F.conv2d(alpha_padded, sobel_x_slow)
+    #grad_y = F.conv2d(alpha_padded, sobel_y_slow)
 
     # 4. Morphological Boundary
     eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
     dilated = F.max_pool2d(alpha_padded, kernel_size=3, stride=1, padding=0)
     morph_edge = dilated - eroded
 
-    Q = torch.cat([alpha, lap_inward, smooth_alpha, eroded, morph_edge, grad_x, grad_y, h_layers], dim=1)
+    Q = torch.cat([alpha, lap_inward, smooth_alpha, eroded, morph_edge, h_layers], dim=1)
     return Q
 
 
@@ -275,7 +275,7 @@ class NCA_RAMod(nn.Module):
         self.dt = 0.1
 
         # Inputs for slow RA perception
-        self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
+        self.slow_input_net = nn.Conv2d(7, 3, kernel_size=1)
         
         # Modulation channels: amplitude, regeneration and competence 
         self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
