@@ -180,33 +180,27 @@ def ring_attractor_phases(a, b):
 
 
 # We apply the live_mask on the discrete update to no have a growth of a,b,d on the background
-def discrete_update(a, b, d, mu, omega, beta_r, beta_i, beta_d, kappa, K,
+def discrete_update(a, b, d, mu, omega, g0, c, beta_d, kappa, Kr, Ki,
                      I_a, I_b, I_d, dt, live_mask):
-
-# During the slow NCA we inject on the hidden states of the manifold the dynamics form the 
-#CGLE equations in discrete steps, this will guide the dynamics on the manifold to a ring-attractor structure 
     a_padded = torch.nn.functional.pad(a, [1, 1, 1, 1], mode='circular')
     diff_a = torch.nn.functional.conv2d(a_padded, lap_slow, padding=0)
-
     b_padded = torch.nn.functional.pad(b, [1, 1, 1, 1], mode='circular')
     diff_b = torch.nn.functional.conv2d(b_padded, lap_slow, padding=0)
 
-    r_sq = a**2 + b**2  
+    r_sq = a**2 + b**2
+    cubic_a = -r_sq * (g0 * a - c * b)
+    cubic_b = -r_sq * (g0 * b + c * a)
 
-    cubic_a = -r_sq * (beta_r * a - beta_i * b)
-    cubic_b = -r_sq * (beta_r * b + beta_i * a)
+    # \dot{z}(x,t)= (\mu+i\omega_0)z+(D_r+iD_i)\nabla^2z-(g_0+ic)|z|^2z +I^z
+    new_a = a + dt * (mu * a - omega * b + cubic_a + Kr * diff_a - Ki * diff_b + I_a)
+    new_b = b + dt * (mu * b + omega * a + cubic_b + Kr * diff_b + Ki * diff_a + I_b)
 
-    new_a = a + dt * (mu * a - omega * b + cubic_a + K * diff_a + I_a)
-    new_b = b + dt * (mu * b + omega * a + cubic_b + K * diff_b + I_b)
-
-    # In addition of the coupled 2D system, we add an uncoupled diffusion equation to 
-    # monitorate the dynamics 
     d_padded = torch.nn.functional.pad(d, [1, 1, 1, 1], mode='circular')
     diff_d = torch.nn.functional.conv2d(d_padded, lap_slow, padding=0)
     new_d = d + dt * (-beta_d * d + kappa * diff_d + I_d)
 
     return new_a, new_b, new_d
-
+                         
 def consensus_update(a, b, dt, mode='local'):
     if mode == 'local':
         a_avg = torch.nn.functional.avg_pool2d(a, 5, 1, 2)   # Kuramoto-like local averaging for phase synchronization
@@ -272,11 +266,12 @@ class NCA_RAMod(nn.Module):
         # Learnable PDE Parameters (Raw latent representations)
         self.mu = nn.Parameter(torch.tensor(0.26)) # Decay rate of a, b
         self.omega = nn.Parameter(torch.tensor(0.3)) # Angular drift frequency
-        self.beta_r = nn.Parameter(torch.tensor(0.16)) # Cubic amplitude saturation strength
-        self.beta_i = nn.Parameter(torch.tensor(0.0))  #Shear / detuning
-        self.K = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling 
+        self.g0 = nn.Parameter(torch.tensor(0.16)) # Cubic amplitude saturation strength
+        self.c = nn.Parameter(torch.tensor(0.0))  #Shear / detuning
+        self.Kr = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling (amplitude)
+        self.Ki = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling (phase)
         self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
-        self.raw_kappa = nn.Parameter(torch.tensor(1.2)) # Latent d-field diffusion strength
+        self.raw_kappa = nn.Parameter(torch.tensor(1.0)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
@@ -326,12 +321,12 @@ class NCA_RAMod(nn.Module):
             beta_phys  = F.softplus(self.raw_beta_d)  + 1e-4
             kappa_phys = F.softplus(self.raw_kappa) + 1e-4
             mu_phys = F.softplus(self.mu) + 1e-4
-            betar_phys = F.softplus(self.beta_r) + 1e-4
-            K_phys = F.softplus(self.K) + 1e-4
+            g0_phys = F.softplus(self.g0) + 1e-4
+            K_r_phys = F.softplus(self.Kr) + 1e-4
             
             new_a, new_b, new_d = discrete_update(
-                a, b, d, mu_phys, self.omega, betar_phys, self.beta_i, beta_phys, kappa_phys, 
-                K_phys, Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
+                a, b, d, mu_phys, self.omega, g0_phys, self.c, beta_phys, kappa_phys, 
+                K_r_phys, self.Ki , Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
             a = new_a * live_mask 
