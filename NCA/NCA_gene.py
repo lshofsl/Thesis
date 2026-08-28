@@ -173,6 +173,29 @@ sobel_y_slow = torch.tensor([[-1., -2., -1.],
                          [ 1.,  2.,  1.]], dtype=torch.float32, device=DEVICE).view(1, 1, 3, 3)
 
 
+def consensus_update(a, b, dt, mode='local'):
+    if mode == 'local':
+        a_avg = torch.nn.functional.avg_pool2d(a, 5, 1, 2)   # Kuramoto-like local averaging for phase synchronization
+        b_avg = torch.nn.functional.avg_pool2d(b, 5, 1, 2)
+    else:
+        a_avg = torch.mean(a, dim=(2, 3), keepdim=True)
+        b_avg = torch.mean(b, dim=(2, 3), keepdim=True)
+
+    # Normalization over the average to maintain the amplitude of the local state
+    rho_avg = torch.sqrt(a_avg**2 + b_avg**2 + 1e-6)
+    rho_local = torch.sqrt(a**2 + b**2 + 1e-6)
+    
+    # Consensus update with amplitude normalization
+    a_avg_norm = (a_avg / rho_avg) * rho_local
+    b_avg_norm = (b_avg / rho_avg) * rho_local
+
+    a = a + dt * (a_avg_norm - a)
+    b = b + dt * (b_avg_norm - b)
+    return a, b
+
+
+
+
 def ring_attractor_phases(a, b):
     local_amplitude = torch.sqrt(a**2 + b**2 + 1e-6)
     local_angle = torch.atan2(b, a)
@@ -201,25 +224,6 @@ def discrete_update(a, b, d, mu, omega, g0, c, beta_d, kappa, Kr, Ki,
 
     return new_a, new_b, new_d
                          
-def consensus_update(a, b, dt, mode='local'):
-    if mode == 'local':
-        a_avg = torch.nn.functional.avg_pool2d(a, 5, 1, 2)   # Kuramoto-like local averaging for phase synchronization
-        b_avg = torch.nn.functional.avg_pool2d(b, 5, 1, 2)
-    else:
-        a_avg = torch.mean(a, dim=(2, 3), keepdim=True)
-        b_avg = torch.mean(b, dim=(2, 3), keepdim=True)
-
-    # Normalization over the average to maintain the amplitude of the local state
-    rho_avg = torch.sqrt(a_avg**2 + b_avg**2 + 1e-6)
-    rho_local = torch.sqrt(a**2 + b**2 + 1e-6)
-    
-    # Consensus update with amplitude normalization
-    a_avg_norm = (a_avg / rho_avg) * rho_local
-    b_avg_norm = (b_avg / rho_avg) * rho_local
-
-    a = a + dt * (a_avg_norm - a)
-    b = b + dt * (b_avg_norm - b)
-    return a, b
 
 
 def slow_perception(rgba, hidden):
@@ -235,15 +239,18 @@ def slow_perception(rgba, hidden):
 
     # 3. Gradients in x and y to have orientation
     smooth_alpha = F.conv2d(alpha_padded, gaus_slow)
-    #grad_x = F.conv2d(alpha_padded, sobel_x_slow)
-    #grad_y = F.conv2d(alpha_padded, sobel_y_slow)
+    # To avoid having a strong ortientation signal inputs which can drive totally the dynamics, 
+    # we reduced its contributions  by half, therefore, this will act as a soft-weak information rather than 
+    # a strong driving signal 
+    grad_x = F.conv2d(alpha_padded, sobel_x_slow) * 0.5
+    grad_y = F.conv2d(alpha_padded, sobel_y_slow) * 0.5
 
     # 4. Morphological Boundary
     eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
     dilated = F.max_pool2d(alpha_padded, kernel_size=3, stride=1, padding=0)
     morph_edge = dilated - eroded
 
-    Q = torch.cat([alpha, lap_inward, smooth_alpha, eroded, morph_edge, h_layers], dim=1)
+    Q = torch.cat([alpha, lap_inward, smooth_alpha, eroded, morph_edge, grad_x, grad_y, h_layers], dim=1)
     return Q
 
 
@@ -267,15 +274,15 @@ class NCA_RAMod(nn.Module):
         self.mu = nn.Parameter(torch.tensor(0.26)) # Decay rate of a, b
         self.omega = nn.Parameter(torch.tensor(0.3)) # Angular drift frequency
         self.g0 = nn.Parameter(torch.tensor(0.16)) # Cubic amplitude saturation strength
-        self.c = nn.Parameter(torch.tensor(0.0))  #Shear / detuning
+        self.c = nn.Parameter(torch.tensor(0.0))  # Shift Frequency 
         self.Kr = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling (amplitude)
         self.Ki = nn.Parameter(torch.tensor(0.3)) # Latent Activator spatial coupling (phase)
         self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
-        self.raw_kappa = nn.Parameter(torch.tensor(1.0)) # Latent d-field diffusion strength
+        self.raw_kappa = nn.Parameter(torch.tensor(1.2)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
-        self.slow_input_net = nn.Conv2d(7, 3, kernel_size=1)
+        self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
         
         # Modulation channels: amplitude, regeneration and competence 
         self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
@@ -329,19 +336,20 @@ class NCA_RAMod(nn.Module):
                 K_r_phys, self.Ki , Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
-            a = new_a * live_mask 
-            b = new_b * live_mask 
-            d = new_d * live_mask 
+            a = new_a 
+            b = new_b 
+            d = new_d 
 
+
+        # a,b,d channels are retrain frozen from the PDE slow regime. However, during the fast NCA the current living masl is applied over 
+        # the frozen outputs (a,b,d) so the cell that die at the current rollout step are zeroed, preventing boundaries discountinuities on the gates
+        a = a * live_mask    
+        b = b * live_mask
+        d = d * live_mask
         # Computation of the inputs to the modulation channels 
         r_sq = a**2 + b**2
         a_pad = F.pad(a, [1,1,1,1], mode='circular')
         b_pad = F.pad(b, [1,1,1,1], mode='circular')
-        
-        ax = F.conv2d(a_pad, sobel_x_slow)
-        ay = F.conv2d(a_pad, sobel_y_slow)
-        bx = F.conv2d(b_pad, sobel_x_slow)
-        by = F.conv2d(b_pad, sobel_y_slow)
 
         r_sq_safe = torch.clamp(r_sq, min=0.01)
 
