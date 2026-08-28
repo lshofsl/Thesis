@@ -338,7 +338,7 @@ class NCA_RAMod(nn.Module):
 
         a = a * live_mask
         b = b * live_mask
-        c = c * live_mask
+        d = d * live_mask
         # Computation of the inputs to the modulation channels 
         r_sq = a**2 + b**2
         a_pad = F.pad(a, [1,1,1,1], mode='circular')
