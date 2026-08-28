@@ -332,16 +332,10 @@ class NCA_RAMod(nn.Module):
                 K_r_phys, self.Ki , Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
-            a = new_a 
-            b = new_b 
-            d = new_d 
+            a = new_a * live_mask
+            b = new_b * live_mask
+            d = new_d * live_mask
 
-
-        # a,b,d channels are retrain frozen from the PDE slow regime. However, during the fast NCA the current living masl is applied over 
-        # the frozen outputs (a,b,d) so the cell that die at the current rollout step are zeroed, preventing boundaries discountinuities on the gates
-        a = a * live_mask    
-        b = b * live_mask
-        d = d * live_mask
         # Computation of the inputs to the modulation channels 
         r_sq = a**2 + b**2
         a_pad = F.pad(a, [1,1,1,1], mode='circular')
