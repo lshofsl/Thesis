@@ -239,12 +239,8 @@ def slow_perception(rgba, hidden):
 
     # 3. Gradients in x and y to have orientation
     smooth_alpha = F.conv2d(alpha_padded, gaus_slow)
-    # To avoid having a strong ortientation signal inputs which can drive totally the dynamics, 
-    # we reduced its contributions  by half, therefore, this will act as a soft-weak information rather than 
-    # a strong driving signal 
-    grad_x = F.conv2d(alpha_padded, sobel_x_slow) * 0.5
-    grad_y = F.conv2d(alpha_padded, sobel_y_slow) * 0.5
-
+    grad_x = F.conv2d(alpha_padded, sobel_x_slow) 
+    grad_y = F.conv2d(alpha_padded, sobel_y_slow) 
     # 4. Morphological Boundary
     eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
     dilated = F.max_pool2d(alpha_padded, kernel_size=3, stride=1, padding=0)
@@ -274,7 +270,7 @@ class NCA_RAMod(nn.Module):
         self.mu = nn.Parameter(torch.tensor(0.26)) # Decay rate of a, b
         self.omega = nn.Parameter(torch.tensor(0.3)) # Angular drift frequency
         self.g0 = nn.Parameter(torch.tensor(0.16)) # Cubic amplitude saturation strength
-        self.c = nn.Parameter(torch.tensor(0.0))  # Shift Frequency 
+        self.c = nn.Parameter(torch.tensor(0.1))  # Shift Frequency 
         self.Kr = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling (amplitude)
         self.Ki = nn.Parameter(torch.tensor(0.3)) # Latent Activator spatial coupling (phase)
         self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
