@@ -316,10 +316,6 @@ class NCA_RAMod(nn.Module):
             Q = slow_perception(x[:, :4], x[:, 4:16])
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
-
-            Ia = Ia * live_mask
-            Ib = Ib * live_mask
-            Id = Id * live_mask
             
             beta_phys  = F.softplus(self.raw_beta_d)  + 1e-4
             kappa_phys = F.softplus(self.raw_kappa) + 1e-4
@@ -332,9 +328,9 @@ class NCA_RAMod(nn.Module):
                 K_r_phys, self.Ki , Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
-            a = new_a * live_mask
-            b = new_b * live_mask
-            d = new_d * live_mask 
+            a = new_a 
+            b = new_b
+            d = new_d 
             
         # Computation of the inputs to the modulation channels 
         r_sq = a**2 + b**2
