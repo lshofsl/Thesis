@@ -317,9 +317,9 @@ class NCA_RAMod(nn.Module):
             I_signals = self.slow_input_net(Q)
             Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
             
-            Ia = Ia * live_mask
-            Ib = Ib * live_mask
-            Id = Id * live_mask
+            Ia = Ia * 0
+            Ib = Ib * 0
+            Id = Id * 0
             
             beta_phys  = F.softplus(self.raw_beta_d)  + 1e-4
             kappa_phys = F.softplus(self.raw_kappa) + 1e-4
