@@ -228,7 +228,7 @@ def discrete_update(a, b, d, mu, omega, g0, c, beta_d, kappa, Kr, Ki,
 
 def slow_perception(rgba, hidden):
     alpha = rgba[:, 3:4, :, :]
-    h_layers = hidden[:, 0:2, :, :]  # arbitrary public hidden channels used as slow-PDE input
+    h_layers = hidden[:, 0:2, :, :]  # two first public hidden channels of the cell state vector 
 
     # 1. Padding
     alpha_padded = torch.nn.functional.pad(alpha, [1, 1, 1, 1], mode='circular')
@@ -241,6 +241,7 @@ def slow_perception(rgba, hidden):
     smooth_alpha = F.conv2d(alpha_padded, gaus_slow)
     grad_x = F.conv2d(alpha_padded, sobel_x_slow) 
     grad_y = F.conv2d(alpha_padded, sobel_y_slow) 
+    
     # 4. Morphological Boundary
     eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
     dilated = F.max_pool2d(alpha_padded, kernel_size=3, stride=1, padding=0)
