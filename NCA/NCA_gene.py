@@ -285,6 +285,8 @@ class NCA_RAMod(nn.Module):
         self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
         self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
         self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1) 
+
+        self.gate_proj = nn.Conv2d(3, hidden_n, 1)
         
 
         # FiLM Modulation Layers
@@ -364,10 +366,13 @@ class NCA_RAMod(nn.Module):
         # 4. Fast NCA Processing with FiLM Modulation
         pre_life_mask = self.get_alive_mask(prefix).to(x.dtype)
         fast_input = reduced_perception(prefix, 0)
+
+        z = self.w1(fast_input)
+        gate = torch.sigmoid(self.gate_proj(m))
+        z_prime = z * gate  # Bounded between 0 and 1
+        y = self.w2(F.relu(z_prime))
+
         
-        combined_input = torch.cat([fast_input, m], dim=1)
-        z = self.w1(combined_input)  # w1 input channels adjusted accordingly
-        y = self.w2(F.relu(z))
         # Correct stochastic update mask
         b_sz, c_sz, h, w = y.shape
         update_mask = (torch.rand(b_sz, 1, h, w, device=x.device) < update_rate).to(x.dtype)
