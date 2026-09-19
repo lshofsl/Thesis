@@ -386,7 +386,7 @@ class NCA_RAMod(nn.Module):
         x_final = torch.cat([new_public, a, b, d, m_amp, m_regeneration, m_d], dim=1)
 
         amplitude, phase = ring_attractor_phases(a, b)
-        return x_final, amplitude, phase, film_gamma_val, film_beta_val
+        return x_final, amplitude, phase
 
 
 
