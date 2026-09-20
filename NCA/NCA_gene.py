@@ -290,13 +290,14 @@ class NCA_RAMod(nn.Module):
         
 
         # FiLM Modulation Layers
-        #self.film_gamma = nn.Conv2d(3, hidden_n, 1)
-        #self.film_beta  = nn.Conv2d(3, hidden_n, 1)
+    
+        self.film_gamma = nn.Conv2d(3, hidden_n, 1)
+        self.film_beta  = nn.Conv2d(3, hidden_n, 1)
         
-        #nn.init.zeros_(self.film_gamma.weight)
-        #nn.init.zeros_(self.film_gamma.bias)
-        #nn.init.normal_(self.film_beta.weight, std=0.01)
-        #nn.init.zeros_(self.film_beta.bias)
+        nn.init.zeros_(self.film_gamma.weight)
+        nn.init.zeros_(self.film_gamma.bias)
+        nn.init.normal_(self.film_beta.weight, std=0.01)
+        nn.init.zeros_(self.film_beta.bias)
 
     def get_alive_mask(self, x):
         alpha = x[:, 3:4, :, :] 
@@ -360,18 +361,16 @@ class NCA_RAMod(nn.Module):
 
         # Standard unconstrained FiLM scaling
         m = torch.cat([m_amp, m_regeneration , m_d], dim=1)
-        #film_gamma_val = 1.0 + self.film_gamma(m)
-        #film_beta_val  = self.film_beta(m)
+        film_gamma_val = 1.0 + self.film_gamma(m)
+        film_beta_val  = self.film_beta(m)
 
         # 4. Fast NCA Processing with FiLM Modulation
         pre_life_mask = self.get_alive_mask(prefix).to(x.dtype)
         fast_input = reduced_perception(prefix, 0)
-
+        
         z = self.w1(fast_input)
-        gate = torch.sigmoid(self.gate_proj(m))
-        z_prime = z * gate  # Bounded between 0 and 1
+        z_prime = film_gamma_val * z + film_beta_val        
         y = self.w2(F.relu(z_prime))
-
         
         # Correct stochastic update mask
         b_sz, c_sz, h, w = y.shape
