@@ -284,14 +284,11 @@ class NCA_RAMod(nn.Module):
         # Modulation channels: amplitude, regeneration and competence 
         self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
         self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
-        self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1) 
-
-        self.gate_proj = nn.Conv2d(3, hidden_n, 1)
-        
+        self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
 
         # FiLM Modulation Layers
-        self.film_gamma = nn.Conv2d(gate_hidden, hidden_n, kernel_size=1)
-        self.film_beta  = nn.Conv2d(gate_hidden, hidden_n, kernel_size=1)
+        self.film_gamma = nn.Conv2d(3, hidden_n, kernel_size=1)
+        self.film_beta  = nn.Conv2d(3, hidden_n, kernel_size=1)
 
         # film_gamma / film_beta zero initial values
         nn.init.zeros_(self.film_gamma.weight)
