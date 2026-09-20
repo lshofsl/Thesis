@@ -290,10 +290,15 @@ class NCA_RAMod(nn.Module):
         
 
         # FiLM Modulation Layers
-    
-        self.film_gamma = nn.Conv2d(3, hidden_n, 1)
-        self.film_beta  = nn.Conv2d(3, hidden_n, 1)
+        gate_hidden = 16 
+        self.gate_mlp = nn.Conv2d(3, gate_hidden, kernel_size=1)
+        self.film_gamma = nn.Conv2d(gate_hidden, hidden_n, kernel_size=1)
+        self.film_beta  = nn.Conv2d(gate_hidden, hidden_n, kernel_size=1)
         
+        nn.init.kaiming_normal_(self.gate_mlp.weight, nonlinearity='relu')
+        nn.init.zeros_(self.gate_mlp.bias)
+
+        # film_gamma / film_beta zero initial values
         nn.init.zeros_(self.film_gamma.weight)
         nn.init.zeros_(self.film_gamma.bias)
         nn.init.normal_(self.film_beta.weight, std=0.01)
@@ -361,9 +366,9 @@ class NCA_RAMod(nn.Module):
 
         # Standard unconstrained FiLM scaling
         m = torch.cat([m_amp, m_regeneration , m_d], dim=1)
-        film_gamma_val = 1.0 + self.film_gamma(m)
-        film_beta_val  = self.film_beta(m)
-
+        h = F.relu(self.gate_mlp(m))
+        film_gamma_val = 1.0 + self.film_gamma(h)
+        film_beta_val  = self.film_beta(h)
         # 4. Fast NCA Processing with FiLM Modulation
         pre_life_mask = self.get_alive_mask(prefix).to(x.dtype)
         fast_input = reduced_perception(prefix, 0)
