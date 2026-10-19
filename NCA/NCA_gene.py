@@ -203,8 +203,8 @@ def ring_attractor_phases(a, b):
 
 
 # We apply the live_mask on the discrete update to no have a growth of a,b,d on the background
-def discrete_update(a, b, d, mu, omega, g0, c, beta_d, kappa, Kr, Ki,
-                     I_a, I_b, I_d, dt, live_mask):
+def discrete_update(a, b, mu, omega, g0, c, Kr, Ki,
+                     I_a, I_b, dt, live_mask):
     a_padded = torch.nn.functional.pad(a, [1, 1, 1, 1], mode='circular')
     diff_a = torch.nn.functional.conv2d(a_padded, lap_slow, padding=0)
     b_padded = torch.nn.functional.pad(b, [1, 1, 1, 1], mode='circular')
@@ -306,8 +306,8 @@ class NCA_RAMod(nn.Module):
         prefix = x[:, :16]    # RGBA + Hidden (Public)
         a = x[:, 16:17]       # Oscillator a
         b = x[:, 17:18]       # Oscillator b
-        d = x[:, 18:19]       # Diffusion field d
-        m = x[:, 19:21]
+        #d = x[:, 18:19]       # Diffusion field d
+        m = x[:, 18:20]
         
         # Consistent neighborhood alive mask
         live_mask = self.get_alive_mask(x).to(x.dtype)
@@ -328,8 +328,8 @@ class NCA_RAMod(nn.Module):
             g0_phys = F.softplus(self.g0) + 1e-4
             K_r_phys = F.softplus(self.Kr) + 1e-4
             
-            new_a, new_b, new_d = discrete_update(
-                a, b, d, mu_phys, self.omega, g0_phys, self.c, 
+            new_a, new_b = discrete_update(
+                a, b, mu_phys, self.omega, g0_phys, self.c, 
                 K_r_phys, self.Ki , Ia, Ib, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
@@ -378,7 +378,7 @@ class NCA_RAMod(nn.Module):
         new_public = new_public * post_life_mask
 
         # 5. Re-assemble state tensor
-        x_final = torch.cat([new_public, a, b, d, m_amp, m_regeneration, m_d], dim=1)
+        x_final = torch.cat([new_public, a, b m_amp, m_regeneration], dim=1)
 
         amplitude, phase = ring_attractor_phases(a, b)
         return x_final, amplitude, phase, film_gamma_val, film_beta_val
