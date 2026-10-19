@@ -218,11 +218,11 @@ def discrete_update(a, b, d, mu, omega, g0, c, beta_d, kappa, Kr, Ki,
     new_a = a + dt * (mu * a - omega * b + cubic_a + Kr * diff_a - Ki * diff_b + I_a)
     new_b = b + dt * (mu * b + omega * a + cubic_b + Kr * diff_b + Ki * diff_a + I_b)
 
-    d_padded = torch.nn.functional.pad(d, [1, 1, 1, 1], mode='circular')
-    diff_d = torch.nn.functional.conv2d(d_padded, lap_slow, padding=0)
-    new_d = d + dt * (-beta_d * d + kappa * diff_d + I_d)
+    #d_padded = torch.nn.functional.pad(d, [1, 1, 1, 1], mode='circular')
+    #diff_d = torch.nn.functional.conv2d(d_padded, lap_slow, padding=0)
+    #new_d = d + dt * (-beta_d * d + kappa * diff_d + I_d)
 
-    return new_a, new_b, new_d
+    return new_a, new_b #new_d
                          
 
 
@@ -274,17 +274,17 @@ class NCA_RAMod(nn.Module):
         self.c = nn.Parameter(torch.tensor(0.0))  # Shift Frequency 
         self.Kr = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling (amplitude)
         self.Ki = nn.Parameter(torch.tensor(-0.01)) # Latent Activator spatial coupling (phase)
-        self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
-        self.raw_kappa = nn.Parameter(torch.tensor(1.2)) # Latent d-field diffusion strength
+        #self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
+        #self.raw_kappa = nn.Parameter(torch.tensor(1.2)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
-        self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
+        self.slow_input_net = nn.Conv2d(9, 2, kernel_size=1)
         
         # Modulation channels: amplitude, regeneration and competence 
         self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
         self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
-        self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
+        #self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
 
         # FiLM Modulation Layers
         self.film_gamma = nn.Conv2d(3, hidden_n, kernel_size=1)
@@ -307,7 +307,7 @@ class NCA_RAMod(nn.Module):
         a = x[:, 16:17]       # Oscillator a
         b = x[:, 17:18]       # Oscillator b
         d = x[:, 18:19]       # Diffusion field d
-        m = x[:, 19:22]
+        m = x[:, 19:21]
         
         # Consistent neighborhood alive mask
         live_mask = self.get_alive_mask(x).to(x.dtype)
@@ -316,26 +316,26 @@ class NCA_RAMod(nn.Module):
         if step % k == 0:
             Q = slow_perception(x[:, :4], x[:, 4:16])
             I_signals = self.slow_input_net(Q)
-            Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
+            Ia, Ib = I_signals[:, 0:1], I_signals[:, 1:2]#, I_signals[:, 2:3]
             
             Ia = Ia * live_mask
             Ib = Ib * live_mask
-            Id = Id * live_mask
+            #Id = Id * live_mask
             
-            beta_phys  = F.softplus(self.raw_beta_d)  + 1e-4
-            kappa_phys = F.softplus(self.raw_kappa) + 1e-4
+            #beta_phys  = F.softplus(self.raw_beta_d)  + 1e-4
+            #kappa_phys = F.softplus(self.raw_kappa) + 1e-4
             mu_phys = F.softplus(self.mu) + 1e-4
             g0_phys = F.softplus(self.g0) + 1e-4
             K_r_phys = F.softplus(self.Kr) + 1e-4
             
             new_a, new_b, new_d = discrete_update(
-                a, b, d, mu_phys, self.omega, g0_phys, self.c, beta_phys, kappa_phys, 
-                K_r_phys, self.Ki , Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
+                a, b, d, mu_phys, self.omega, g0_phys, self.c, 
+                K_r_phys, self.Ki , Ia, Ib, dt=self.dt, live_mask=live_mask)
             #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
             
             a = new_a * live_mask
             b = new_b * live_mask
-            d = new_d * live_mask
+            #d = new_d * live_mask
             
         # Computation of the inputs to the modulation channels 
         r_sq = a**2 + b**2
@@ -354,10 +354,10 @@ class NCA_RAMod(nn.Module):
         # 3. Compute FiLM Modulation Signals from RA states
         m_amp      = torch.sigmoid(self.amp_to_gate(r_sq))
         m_regeneration = torch.sigmoid(self.reg_to_gate(reg_input))
-        m_d        = torch.sigmoid(self.d_to_gate(d))
+        #m_d        = torch.sigmoid(self.d_to_gate(d))
 
         # Standard unconstrained FiLM scaling
-        m = torch.cat([m_amp, m_regeneration , m_d], dim=1)
+        m = torch.cat([m_amp, m_regeneration], dim=1)
         film_gamma_val = 1.0 + self.film_gamma(m)
         film_beta_val  = self.film_beta(m)
         # 4. Fast NCA Processing with FiLM Modulation
