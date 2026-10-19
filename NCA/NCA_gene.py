@@ -378,7 +378,7 @@ class NCA_RAMod(nn.Module):
         new_public = new_public * post_life_mask
 
         # 5. Re-assemble state tensor
-        x_final = torch.cat([new_public, a, b m_amp, m_regeneration], dim=1)
+        x_final = torch.cat([new_public, a, b, m_amp, m_regeneration], dim=1)
 
         amplitude, phase = ring_attractor_phases(a, b)
         return x_final, amplitude, phase, film_gamma_val, film_beta_val
