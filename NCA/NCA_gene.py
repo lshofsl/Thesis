@@ -370,6 +370,7 @@ class NCA_RAMod(nn.Module):
         self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
         #self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
 
+        self.gate = InvariantGate(n_gates=modulatory, n_kernels=4)
         # FiLM Modulation Layers
         self.film_gamma = nn.Conv2d(3, hidden_n, kernel_size=1)
         self.film_beta  = nn.Conv2d(3, hidden_n, kernel_size=1)
