@@ -338,7 +338,7 @@ class InvariantGate(nn.Module):
 
 
 class NCA_RAMod(nn.Module):
-    def __init__(self, chn=22, hidden_n=96, recurrent=3, modulatory=3):
+    def __init__(self, chn=20, hidden_n=64, recurrent=2, modulatory=2):
         super().__init__()
         self.chn = chn
         self.public = chn - recurrent - modulatory  # Public channels = 16
@@ -366,14 +366,14 @@ class NCA_RAMod(nn.Module):
         self.slow_input_net = nn.Conv2d(9, 2, kernel_size=1)
         
         # Modulation channels: amplitude, regeneration and competence 
-        self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
-        self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
+        #self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
+        #self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
         #self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
 
         self.gate = InvariantGate(n_gates=modulatory, n_kernels=4)
         # FiLM Modulation Layers
-        self.film_gamma = nn.Conv2d(3, hidden_n, kernel_size=1)
-        self.film_beta  = nn.Conv2d(3, hidden_n, kernel_size=1)
+        self.film_gamma = nn.Conv2d(modulatory, hidden_n, kernel_size=1)
+        self.film_beta  = nn.Conv2d(modulatory, hidden_n, kernel_size=1)
 
         # film_gamma / film_beta zero initial values
         nn.init.zeros_(self.film_gamma.weight)
@@ -392,7 +392,7 @@ class NCA_RAMod(nn.Module):
 
         live_mask = self.get_alive_mask(x).to(x.dtype)
 
-        mu_phys  = F.softplus(self.mu) + 1e-4               # needed on every step
+        mu_phys  = F.softplus(self.mu) + 1e-4       
         g0_phys  = F.softplus(self.g0) + 1e-4
 
         if step % k == 0:
