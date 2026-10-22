@@ -163,7 +163,7 @@ lap_slow = torch.tensor([[0., 1., 0.],
 gaus_slow = torch.tensor([[1., 2., 1.],
                       [2., 4., 2.],
                       [1., 2., 1.]], dtype=torch.float32, device=DEVICE) / 16.0
-gaus_slow = gaus.view(1, 1, 3, 3)
+gaus_slow = gaus_slow.view(1, 1, 3, 3)
 
 sobel_x_slow = torch.tensor([[-1., 0., 1.],
                          [-2., 0., 2.],
@@ -269,9 +269,9 @@ class NCA_RAMod(nn.Module):
         self.w2.weight.data.zero_()
 
         # Learnable PDE Parameters (Raw latent representations)
-        self.mu = nn.Parameter(torch.tensor(0.26)) # Decay rate of a, b
+        self.mu = nn.Parameter(torch.tensor(0.4)) # Decay rate of a, b
         self.omega = nn.Parameter(torch.tensor(0.3)) # Angular drift frequency
-        self.g0 = nn.Parameter(torch.tensor(0.16)) # Cubic amplitude saturation strength
+        self.g0 = nn.Parameter(torch.tensor(0.3)) # Cubic amplitude saturation strength
         self.c = nn.Parameter(torch.tensor(0.0))  # Shift Frequency 
         self.Kr = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling (amplitude)
         self.Ki = nn.Parameter(torch.tensor(-0.01)) # Latent Activator spatial coupling (phase)
