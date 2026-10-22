@@ -149,6 +149,7 @@ class NCA(torch.nn.Module):
 
 
 
+
 #Slow RA functions 
 #In each cell of the NCA we are going to add the RA states this will help us to understand the dynamics of training 
 
@@ -203,8 +204,8 @@ def ring_attractor_phases(a, b):
 
 
 # We apply the live_mask on the discrete update to no have a growth of a,b,d on the background
-def discrete_update(a, b, mu, omega, g0, c, Kr, Ki,
-                     I_a, I_b, dt, live_mask):
+def discrete_update(a, b, d, mu, omega, g0, c, beta_d, kappa, Kr, Ki,
+                     I_a, I_b, I_d, dt, live_mask):
     a_padded = torch.nn.functional.pad(a, [1, 1, 1, 1], mode='circular')
     diff_a = torch.nn.functional.conv2d(a_padded, lap_slow, padding=0)
     b_padded = torch.nn.functional.pad(b, [1, 1, 1, 1], mode='circular')
@@ -218,11 +219,11 @@ def discrete_update(a, b, mu, omega, g0, c, Kr, Ki,
     new_a = a + dt * (mu * a - omega * b + cubic_a + Kr * diff_a - Ki * diff_b + I_a)
     new_b = b + dt * (mu * b + omega * a + cubic_b + Kr * diff_b + Ki * diff_a + I_b)
 
-    #d_padded = torch.nn.functional.pad(d, [1, 1, 1, 1], mode='circular')
-    #diff_d = torch.nn.functional.conv2d(d_padded, lap_slow, padding=0)
-    #new_d = d + dt * (-beta_d * d + kappa * diff_d + I_d)
+    d_padded = torch.nn.functional.pad(d, [1, 1, 1, 1], mode='circular')
+    diff_d = torch.nn.functional.conv2d(d_padded, lap_slow, padding=0)
+    new_d = d + dt * (-beta_d * d + kappa * diff_d + I_d)
 
-    return new_a, new_b #new_d
+    return new_a, new_b, new_d
                          
 
 
@@ -239,106 +240,22 @@ def slow_perception(rgba, hidden):
 
     # 3. Gradients in x and y to have orientation
     smooth_alpha = F.conv2d(alpha_padded, gaus_slow)
-    #grad_x = F.conv2d(alpha_padded, sobel_x_slow) 
-    #grad_y = F.conv2d(alpha_padded, sobel_y_slow) 
+    grad_x = F.conv2d(alpha_padded, sobel_x_slow) 
+    grad_y = F.conv2d(alpha_padded, sobel_y_slow) 
     
     # 4. Morphological Boundary
     eroded = -F.max_pool2d(-alpha_padded, kernel_size=3, stride=1, padding=0)
     dilated = F.max_pool2d(alpha_padded, kernel_size=3, stride=1, padding=0)
     morph_edge = dilated - eroded
 
-    Q = torch.cat([alpha, lap_inward, smooth_alpha, eroded, morph_edge, h_layers], dim=1)
+    Q = torch.cat([alpha, lap_inward, smooth_alpha, eroded, morph_edge, grad_x, grad_y, h_layers], dim=1)
     return Q
 
 
 
-def _d4_orbit(k):
-    """k: (..., 3, 3) -> (8, ..., 3, 3): 4 rotations of k and of its mirror."""
-    out = []
-    for kk in (k, torch.flip(k, dims=(-1,))):
-        for r in range(4):
-            out.append(torch.rot90(kk, r, dims=(-2, -1)))
-    return torch.stack(out, 0)
- 
- 
-class InvariantGate(nn.Module):
-    def __init__(self, n_gates=2, n_kernels=4, padding_mode="circular",
-                 init_interpretable=True, init_noise=0.05):
-        super().__init__()
-        self.J = n_kernels
-        self.padding_mode = padding_mode
- 
-        Kr = init_noise * torch.randn(n_kernels, 3, 3)
-        Ki = init_noise * torch.randn(n_kernels, 3, 3)
-        if init_interpretable:
-            # Start near the hand-picked invariants; training is free to move away.
-            blur = torch.tensor([[1., 2., 1.], [2., 4., 2.], [1., 2., 1.]]) / 16
-            lap = torch.tensor([[0., 1., 0.], [1., -4., 1.], [0., 1., 0.]])
-            dx = torch.tensor([[0., 0., 0.], [-.5, 0., .5], [0., 0., 0.]])
-            inits = [blur, lap, dx]
-            for j, k in enumerate(inits[:n_kernels]):
-                Kr[j] += k
-        self.Kr = nn.Parameter(Kr)
-        self.Ki = nn.Parameter(Ki)
- 
-        # isotropic smoother for |z|^2: (centre, edge, corner) weights
-        self.s_w = nn.Parameter(torch.tensor([4., 2., 1.]) / 16)
- 
-        self.n_feat = 3 * n_kernels + 2          # P_j, R_j, I_j, |z|^2, S
-        self.readout = nn.Conv2d(self.n_feat, n_gates, kernel_size=1)
- 
-    # ---- helpers -------------------------------------------------------
-    def _pad(self, x):
-        return F.pad(x, (1, 1, 1, 1), mode=self.padding_mode)
- 
-    def _iso_kernel(self):
-        c, e, k = self.s_w
-        return torch.stack([torch.stack([k, e, k]),
-                            torch.stack([e, c, e]),
-                            torch.stack([k, e, k])])
- 
-    # ---- forward -------------------------------------------------------
-    def features(self, a, b, r_star=None):
-        """a, b: (B,1,H,W). Returns phi: (B, n_feat, H, W)."""
-        # orbit of complex kernels: (8, J, 3, 3)
-        Kr, Ki = _d4_orbit(self.Kr), _d4_orbit(self.Ki)
-        O = Kr.shape[0]
-        Kr, Ki = Kr.reshape(O * self.J, 1, 3, 3), Ki.reshape(O * self.J, 1, 3, 3)
- 
-        # complex conv  w = K * z :  Re = Kr*a - Ki*b ,  Im = Kr*b + Ki*a
-        ab = self._pad(torch.cat([a, b], 1))                    # (B,2,H+2,W+2)
-        W_re = torch.cat([Kr, -Ki], 1)                          # acts on (a,b)
-        W_im = torch.cat([Ki,  Kr], 1)
-        wr = F.conv2d(ab, W_re)                                 # (B, 8J, H, W)
-        wi = F.conv2d(ab, W_im)
- 
-        P = wr ** 2 + wi ** 2
-        R = a * wr + b * wi            # Re(conj(z) w)
-        I = a * wi - b * wr            # Im(conj(z) w)
- 
-        B_, _, H, Wd = P.shape
-        avg = lambda t: t.view(B_, O, self.J, H, Wd).mean(1)    # D4 orbit mean
-        P, R, I = avg(P), avg(R), avg(I)
- 
-        p = a ** 2 + b ** 2
-        S = F.conv2d(self._pad(p), self._iso_kernel().view(1, 1, 3, 3))
- 
-        phi = torch.cat([P, R, I, p, S], 1)
-        if r_star is not None:                 # quadratic features scale as r*^2
-            phi = phi / (r_star.detach() ** 2 + 1e-6)
-        return phi
- 
-    def forward(self, a, b, r_star=None, alive=None):
-        m = torch.sigmoid(self.readout(self.features(a, b, r_star)))
-        if alive is not None:
-            m = m * alive
-        return m
- 
-
-
 
 class NCA_RAMod(nn.Module):
-    def __init__(self, chn=20, hidden_n=64, recurrent=2, modulatory=2):
+    def __init__(self, chn=22, hidden_n=96, recurrent=3, modulatory=3):
         super().__init__()
         self.chn = chn
         self.public = chn - recurrent - modulatory  # Public channels = 16
@@ -352,28 +269,27 @@ class NCA_RAMod(nn.Module):
         self.w2.weight.data.zero_()
 
         # Learnable PDE Parameters (Raw latent representations)
-        self.mu = nn.Parameter(torch.tensor(0.4)) # Decay rate of a, b
+        self.mu = nn.Parameter(torch.tensor(0.26)) # Decay rate of a, b
         self.omega = nn.Parameter(torch.tensor(0.3)) # Angular drift frequency
-        self.g0 = nn.Parameter(torch.tensor(0.3)) # Cubic amplitude saturation strength
+        self.g0 = nn.Parameter(torch.tensor(0.16)) # Cubic amplitude saturation strength
         self.c = nn.Parameter(torch.tensor(0.0))  # Shift Frequency 
         self.Kr = nn.Parameter(torch.tensor(1.2)) # Latent Activator spatial coupling (amplitude)
         self.Ki = nn.Parameter(torch.tensor(-0.01)) # Latent Activator spatial coupling (phase)
-        #self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
-        #self.raw_kappa = nn.Parameter(torch.tensor(1.2)) # Latent d-field diffusion strength
+        self.raw_beta_d = nn.Parameter(torch.tensor(-1.0)) # Latent decay rate of d (softplus will be apply)
+        self.raw_kappa = nn.Parameter(torch.tensor(1.2)) # Latent d-field diffusion strength
         self.dt = 0.1
 
         # Inputs for slow RA perception
-        self.slow_input_net = nn.Conv2d(7, 2, kernel_size=1)
+        self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
         
         # Modulation channels: amplitude, regeneration and competence 
-        #self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
-        #self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
-        #self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
+        self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
+        self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
+        self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
 
-        self.gate = InvariantGate(n_gates=modulatory, n_kernels=4)
         # FiLM Modulation Layers
-        self.film_gamma = nn.Conv2d(modulatory, hidden_n, kernel_size=1)
-        self.film_beta  = nn.Conv2d(modulatory, hidden_n, kernel_size=1)
+        self.film_gamma = nn.Conv2d(3, hidden_n, kernel_size=1)
+        self.film_beta  = nn.Conv2d(3, hidden_n, kernel_size=1)
 
         # film_gamma / film_beta zero initial values
         nn.init.zeros_(self.film_gamma.weight)
@@ -387,28 +303,62 @@ class NCA_RAMod(nn.Module):
         return F.max_pool2d(padded_alpha, 3, stride=1, padding=0) > 0.1
 
     def forward(self, x, update_rate=0.5, step=0, k=4):
-        prefix = x[:, :16]
-        a, b   = x[:, 16:17], x[:, 17:18]
-
+        # 1. Split state channels
+        prefix = x[:, :16]    # RGBA + Hidden (Public)
+        a = x[:, 16:17]       # Oscillator a
+        b = x[:, 17:18]       # Oscillator b
+        d = x[:, 18:19]       # Diffusion field d
+        m = x[:, 19:22]
+        
+        # Consistent neighborhood alive mask
         live_mask = self.get_alive_mask(x).to(x.dtype)
-
-        mu_phys  = F.softplus(self.mu) + 1e-4       
-        g0_phys  = F.softplus(self.g0) + 1e-4
-
+        
+        # 2. Slow Ring Attractor PDE Updates (Every k steps)
         if step % k == 0:
             Q = slow_perception(x[:, :4], x[:, 4:16])
             I_signals = self.slow_input_net(Q)
-            Ia = I_signals[:, 0:1] * live_mask
-            Ib = I_signals[:, 1:2] * live_mask
+            Ia, Ib, Id = I_signals[:, 0:1], I_signals[:, 1:2], I_signals[:, 2:3]
+            
+            Ia = Ia * live_mask
+            Ib = Ib * live_mask
+            Id = Id * live_mask
+            
+            beta_phys  = F.softplus(self.raw_beta_d)  + 1e-4
+            kappa_phys = F.softplus(self.raw_kappa) + 1e-4
+            mu_phys = F.softplus(self.mu) + 1e-4
+            g0_phys = F.softplus(self.g0) + 1e-4
             K_r_phys = F.softplus(self.Kr) + 1e-4
-            new_a, new_b = discrete_update(
-                a, b, mu_phys, self.omega, g0_phys, self.c,
-                K_r_phys, self.Ki, Ia, Ib, dt=self.dt, live_mask=live_mask)
-            a, b = new_a * live_mask, new_b * live_mask
+            
+            new_a, new_b, new_d = discrete_update(
+                a, b, d, mu_phys, self.omega, g0_phys, self.c, beta_phys, kappa_phys, 
+                K_r_phys, self.Ki , Ia, Ib, Id, dt=self.dt, live_mask=live_mask)
+            #new_a, new_b = consensus_update(new_a, new_b, dt=self.dt, mode='local')
+            
+            a = new_a * live_mask
+            b = new_b * live_mask
+            d = new_d * live_mask
+            
+        # Computation of the inputs to the modulation channels 
+        r_sq = a**2 + b**2
+        a_pad = F.pad(a, [1,1,1,1], mode='circular')
+        b_pad = F.pad(b, [1,1,1,1], mode='circular')
 
-        r_star = torch.sqrt(mu_phys / g0_phys)
-        m = self.gate(a, b, r_star=r_star, alive=live_mask)
+        r_sq_safe = torch.clamp(r_sq, min=0.01)
 
+        r_sq_pad = F.pad(r_sq_safe, [1,1,1,1], mode='circular')
+        d_pad    = F.pad(d,         [1,1,1,1], mode='circular')
+        r_sq_lap = F.conv2d(r_sq_pad, lap_slow)
+        d_lap    = F.conv2d(d_pad,    lap_slow)
+
+        reg_input = torch.cat([r_sq_lap, d_lap, r_sq_safe, d], dim=1)
+
+        # 3. Compute FiLM Modulation Signals from RA states
+        m_amp      = torch.sigmoid(self.amp_to_gate(r_sq))
+        m_regeneration = torch.sigmoid(self.reg_to_gate(reg_input))
+        m_d        = torch.sigmoid(self.d_to_gate(d))
+
+        # Standard unconstrained FiLM scaling
+        m = torch.cat([m_amp, m_regeneration , m_d], dim=1)
         film_gamma_val = 1.0 + self.film_gamma(m)
         film_beta_val  = self.film_beta(m)
         # 4. Fast NCA Processing with FiLM Modulation
@@ -429,13 +379,10 @@ class NCA_RAMod(nn.Module):
         new_public = new_public * post_life_mask
 
         # 5. Re-assemble state tensor
-        x_final = torch.cat([new_public, a, b, m], dim=1)
+        x_final = torch.cat([new_public, a, b, d, m_amp, m_regeneration, m_d], dim=1)
 
         amplitude, phase = ring_attractor_phases(a, b)
         return x_final, amplitude, phase, film_gamma_val, film_beta_val
-
-
-
 
 class NCA_onlyRA(torch.nn.Module):
     def __init__(self, chn=19, hidden_n=96, recurrent =3):
