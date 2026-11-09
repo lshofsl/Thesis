@@ -283,7 +283,7 @@ class NCA_RAMod(nn.Module):
         self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
         
         # Modulation channels: amplitude, regeneration and competence 
-        self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
+        self.phase_to_gate  = nn.Conv2d(2, 1, kernel_size=1) 
         self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
         self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
 
@@ -345,6 +345,10 @@ class NCA_RAMod(nn.Module):
 
         r_sq_safe = torch.clamp(r_sq, min=0.01)
 
+        rho   = torch.sqrt(torch.clamp(r_sq, min=1e-4))
+        cos_t = a / rho                     # dead cells: a = b = 0 -> cos = sin = 0
+        sin_t = b / rho
+
         r_sq_pad = F.pad(r_sq_safe, [1,1,1,1], mode='circular')
         d_pad    = F.pad(d,         [1,1,1,1], mode='circular')
         r_sq_lap = F.conv2d(r_sq_pad, lap_slow)
@@ -353,12 +357,12 @@ class NCA_RAMod(nn.Module):
         reg_input = torch.cat([r_sq_lap, d_lap, r_sq_safe, d], dim=1)
 
         # 3. Compute FiLM Modulation Signals from RA states
-        m_amp      = torch.sigmoid(self.amp_to_gate(r_sq))
+        m_phase = torch.sigmoid(self.phase_to_gate(torch.cat([cos_t, sin_t], dim=1)))
         m_regeneration = torch.sigmoid(self.reg_to_gate(reg_input))
         m_d        = torch.sigmoid(self.d_to_gate(d))
 
         # Standard unconstrained FiLM scaling
-        m = torch.cat([m_amp, m_regeneration , m_d], dim=1)
+        m = torch.cat([m_phase, m_regeneration , m_d], dim=1)
         film_gamma_val = 1.0 + self.film_gamma(m)
         film_beta_val  = self.film_beta(m)
         # 4. Fast NCA Processing with FiLM Modulation
