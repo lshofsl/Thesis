@@ -362,7 +362,7 @@ class NCA_RAMod(nn.Module):
         m_d        = torch.sigmoid(self.d_to_gate(d))
 
         # Standard unconstrained FiLM scaling
-        m = torch.cat([m_phase, m_regeneration , m_d], dim=1)
+        m = torch.cat([m_amp, m_regeneration , m_d], dim=1)
         film_gamma_val = 1.0 + self.film_gamma(m)
         film_beta_val  = self.film_beta(m)
         # 4. Fast NCA Processing with FiLM Modulation
