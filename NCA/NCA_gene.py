@@ -357,7 +357,7 @@ class NCA_RAMod(nn.Module):
         reg_input = torch.cat([r_sq_lap, d_lap, r_sq_safe, d], dim=1)
 
         # 3. Compute FiLM Modulation Signals from RA states
-        m_amp = torch.sigmoid(self.amp_to_gate(r_sq_safe))
+        m_amp = torch.sigmoid(self.amp_to_gate(torch.cat([a, b], dim=1)))
         m_regeneration = torch.sigmoid(self.reg_to_gate(reg_input))
         m_d        = torch.sigmoid(self.d_to_gate(d))
 
