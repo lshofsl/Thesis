@@ -283,7 +283,7 @@ class NCA_RAMod(nn.Module):
         self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
         
         # Modulation channels: amplitude, regeneration and competence 
-        self.phase_to_gate  = nn.Conv2d(2, 1, kernel_size=1) 
+        self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
         self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
         self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
 
@@ -357,7 +357,7 @@ class NCA_RAMod(nn.Module):
         reg_input = torch.cat([r_sq_lap, d_lap, r_sq_safe, d], dim=1)
 
         # 3. Compute FiLM Modulation Signals from RA states
-        m_phase = torch.sigmoid(self.phase_to_gate(torch.cat([cos_t, sin_t], dim=1)))
+        m_amp = torch.sigmoid(self.phase_to_gate(r_sq_safe))
         m_regeneration = torch.sigmoid(self.reg_to_gate(reg_input))
         m_d        = torch.sigmoid(self.d_to_gate(d))
 
@@ -383,7 +383,7 @@ class NCA_RAMod(nn.Module):
         new_public = new_public * post_life_mask
 
         # 5. Re-assemble state tensor
-        x_final = torch.cat([new_public, a, b, d, m_phase, m_regeneration, m_d], dim=1)
+        x_final = torch.cat([new_public, a, b, d, m_amp, m_regeneration, m_d], dim=1)
 
         amplitude, phase = ring_attractor_phases(a, b)
         return x_final, amplitude, phase, film_gamma_val, film_beta_val
