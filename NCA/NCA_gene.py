@@ -283,7 +283,7 @@ class NCA_RAMod(nn.Module):
         self.slow_input_net = nn.Conv2d(9, 3, kernel_size=1)
         
         # Modulation channels: amplitude, regeneration and competence 
-        self.amp_to_gate  = nn.Conv2d(1, 1, kernel_size=1) 
+        self.amp_to_gate  = nn.Conv2d(2, 1, kernel_size=1) 
         self.reg_to_gate = nn.Conv2d(4, 1, kernel_size=1)  
         self.d_to_gate    = nn.Conv2d(1, 1, kernel_size=1)         
 
